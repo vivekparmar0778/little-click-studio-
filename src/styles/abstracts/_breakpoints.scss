@@ -1,0 +1,46 @@
+
+@use "sass:map";
+
+$breakpoints: (
+  "mobile-320": 320px,
+  "mobile-360": 360px,
+  "mobile-375": 375px,
+  "mobile-390": 390px,
+  "mobile-414": 414px,
+  "mobile-430": 430px,
+  "tablet-600": 600px,
+  "tablet-640": 640px,
+  "tablet-768": 768px,
+  "tablet-820": 820px,
+  "tablet-900": 900px,
+  "desktop-1024": 1024px,
+  "desktop-1280": 1280px,
+  "desktop-1366": 1366px,
+  "desktop-1440": 1440px,
+  "desktop-1600": 1600px,
+  "desktop-1920": 1920px
+);
+
+@mixin up($name) {
+  $value: map.get($breakpoints, $name);
+
+  @if $value == null {
+    @error "Unknown breakpoint: #{$name}. Check the $breakpoints map.";
+  }
+
+  @media (min-width: $value) {
+    @content;
+  }
+}
+
+@mixin down($name) {
+  $value: map.get($breakpoints, $name);
+
+  @if $value == null {
+    @error "Unknown breakpoint: #{$name}. Check the $breakpoints map.";
+  }
+
+  @media (max-width: ($value - 1px)) {
+    @content;
+  }
+}

@@ -1,0 +1,88 @@
+
+:root {
+  color-scheme: light;
+
+  /* Brand palette */
+  --color-ivory: #faf7f2;
+  --color-cream: #f1ebe0;
+  --color-champagne: #d9c7a3;
+  --color-bronze: #7d5f33;
+  --color-taupe: #6b625a;
+  --color-charcoal: #2a2623;
+  --color-ink: #1c1917;
+  --color-white: #ffffff;
+
+  /* Semantic colors */
+  --color-background: var(--color-ivory);
+  --color-surface: var(--color-white);
+  --color-text: var(--color-ink);
+  --color-text-muted: var(--color-taupe);
+  --color-border: rgba(42, 38, 35, 0.14);
+  --color-accent: var(--color-bronze);
+
+  /* Typography */
+  --font-body: "DM Sans", "Segoe UI", Arial, sans-serif;
+  --font-display: "Cormorant Garamond", Georgia, serif;
+
+  /* Layout */
+  --container-width: 1440px;
+  --page-gutter: clamp(20px, 5vw, 80px);
+  --header-height: 84px;
+
+  /* Shape and motion */
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 28px;
+  --radius-pill: 999px;
+  --shadow-soft: 0 18px 60px rgba(42, 38, 35, 0.08);
+  --ease-luxury: cubic-bezier(0.22, 1, 0.36, 1);
+
+    // Admin layout
+  --admin-sidebar-width: 17rem;
+  --admin-sidebar-mobile-max: 88vw;
+  --admin-header-height: var(--header-height);
+  --admin-brand-mark-size: 2.75rem;
+
+  // Admin palette: reuses the existing site palette
+  --admin-color-surface: var(--color-white);
+  --admin-color-text: var(--color-ink);
+  --admin-color-text-muted: var(--color-taupe);
+  --admin-color-accent: var(--color-bronze);
+  --admin-color-on-accent: var(--color-ivory);
+  --admin-color-border: var(--color-border);
+  --admin-color-hover: var(--color-cream);
+  --admin-color-active: var(--color-ivory);
+  --admin-color-active-border: var(--color-champagne);
+  --admin-color-focus: var(--color-bronze);
+  --admin-color-backdrop: rgba(28, 25, 23, 0.48);
+
+  // Admin spacing scale
+  --admin-space-1: 0.25rem;
+  --admin-space-2: 0.5rem;
+  --admin-space-3: 0.75rem;
+  --admin-space-4: 1rem;
+  --admin-space-5: 1.25rem;
+
+  // Admin typography
+  --admin-font-xs: 0.6875rem;
+  --admin-font-sm: 0.875rem;
+  --admin-font-brand: 1.375rem;
+  --admin-font-brand-mark: 1.25rem;
+  --admin-font-footer-copy: 1.125rem;
+  --admin-font-weight-medium: 500;
+  --admin-font-weight-semibold: 600;
+  --admin-letter-spacing-wide: 0.1em;
+  --admin-line-height-tight: 1.2;
+  --admin-line-height-relaxed: 1.6;
+
+  // Admin shape, focus and motion
+  --admin-radius-sm: var(--radius-sm);
+  --admin-radius-md: var(--radius-md);
+  --admin-border-width: 1px;
+  --admin-control-height: 2.75rem;
+  --admin-focus-width: 2px;
+  --admin-focus-offset: 2px;
+  --admin-transition: 180ms ease;
+  --admin-z-backdrop: 100;
+  --admin-z-sidebar: 101;
+}
