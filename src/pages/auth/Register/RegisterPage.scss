@@ -1,0 +1,345 @@
+
+.register-page {
+  --register-ivory: #faf7f2;
+  --register-cream: #f1ebe0;
+  --register-champagne: #d9c7a3;
+  --register-bronze: #7d5f33;
+  --register-taupe: #6b625a;
+  --register-ink: #1c1917;
+
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  min-height: 100vh;
+  min-height: 100svh;
+  place-items: center;
+  overflow: hidden;
+  padding: 34px 18px 24px;
+  background:
+    radial-gradient(ellipse at 8% 12%, rgba(217, 199, 163, 0.25), transparent 38%),
+    radial-gradient(ellipse at 94% 88%, rgba(217, 199, 163, 0.18), transparent 36%),
+    var(--register-ivory);
+  color: var(--register-ink);
+  font-family: inherit;
+}
+
+.register-page__ornament {
+  position: absolute;
+  z-index: -1;
+  top: -190px;
+  right: -150px;
+  width: 430px;
+  aspect-ratio: 1;
+  border: 1px solid rgba(125, 95, 51, 0.13);
+  border-radius: 50%;
+  pointer-events: none;
+
+  &::before,
+  &::after {
+    position: absolute;
+    inset: 28px;
+    border: 1px solid rgba(125, 95, 51, 0.1);
+    border-radius: 50%;
+    content: "";
+  }
+
+  &::after {
+    inset: 58px;
+  }
+}
+
+.register-card {
+  width: min(100%, 490px);
+  padding: clamp(26px, 5vw, 44px);
+  border: 1px solid rgba(125, 95, 51, 0.15);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 24px 80px rgba(42, 38, 35, 0.07);
+  
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  animation: register-appear 450ms ease both;
+}
+
+.register-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  color: inherit;
+  text-decoration: none;
+
+  &__symbol {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid rgba(125, 95, 51, 0.25);
+    border-radius: 50%;
+    color: var(--register-bronze);
+  }
+
+  &__copy strong,
+  &__copy small {
+    display: block;
+  }
+
+  &__copy strong {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.4px;
+  }
+
+  &__copy small {
+    margin-top: 5px;
+    color: var(--register-taupe);
+    font-size: 9px;
+    letter-spacing: 1.6px;
+  }
+}
+
+.register-heading {
+  margin-top: 30px;
+}
+
+.register-eyebrow {
+  margin: 0 0 12px;
+  color: var(--register-bronze);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 2px;
+}
+
+.register-heading h1 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(35px, 6vw, 46px);
+  font-weight: 400;
+  letter-spacing: -1.6px;
+  line-height: 1.12;
+
+  em {
+    color: var(--register-bronze);
+    font-weight: 400;
+  }
+}
+
+.register-description {
+  margin: 13px 0 22px;
+  color: var(--register-taupe);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.register-form {
+  display: grid;
+  gap: 14px;
+}
+
+.register-field {
+  display: grid;
+  gap: 7px;
+
+  label {
+    color: var(--register-ink);
+    font-size: 11px;
+    font-weight: 600;
+  }
+}
+
+.register-input {
+  display: flex;
+  min-height: 47px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid rgba(107, 98, 90, 0.24);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--register-taupe);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+
+  &:focus-within {
+    border-color: var(--register-bronze);
+    box-shadow: 0 0 0 3px rgba(125, 95, 51, 0.08);
+  }
+
+  input {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--register-ink);
+    font: inherit;
+    font-size: 12px;
+
+    &::placeholder {
+      color: #a39a90;
+    }
+  }
+}
+
+.register-password-toggle {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--register-taupe);
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--register-bronze);
+    outline-offset: 2px;
+  }
+}
+
+.register-error {
+  margin: 0;
+  color: #a33232;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.register-submit {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 3px;
+  padding: 0 16px;
+  border: 1px solid var(--register-ink);
+  border-radius: 3px;
+  background: var(--register-ink);
+  color: var(--register-ivory);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 180ms ease, transform 180ms ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: var(--register-bronze);
+    background: var(--register-bronze);
+  }
+
+  &:focus-visible {
+    outline: 3px solid rgba(125, 95, 51, 0.3);
+    outline-offset: 3px;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.7;
+  }
+}
+
+.register-terms {
+  margin: 0;
+  color: var(--register-taupe);
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.register-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 21px 0 16px;
+  color: var(--register-taupe);
+
+  &::before,
+  &::after {
+    height: 1px;
+    flex: 1;
+    background: rgba(107, 98, 90, 0.17);
+    content: "";
+  }
+
+  span {
+    font-size: 8px;
+    letter-spacing: 1.4px;
+    white-space: nowrap;
+  }
+}
+
+.register-switch {
+  margin: 0;
+  color: var(--register-taupe);
+  font-size: 12px;
+  line-height: 1.8;
+  text-align: center;
+
+  a {
+    color: var(--register-bronze);
+    font-weight: 600;
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.register-security {
+  margin: 20px 0 0;
+  padding-top: 15px;
+  border-top: 1px solid rgba(107, 98, 90, 0.14);
+  color: var(--register-taupe);
+  font-size: 10px;
+  text-align: center;
+}
+
+.register-footer {
+  margin-top: 22px;
+  color: var(--register-taupe);
+  font-size: 9px;
+  letter-spacing: 1.8px;
+  line-height: 1.8;
+  text-align: center;
+}
+
+@keyframes register-appear {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 480px) {
+  .register-page {
+    padding: 22px 13px;
+  }
+
+  .register-card {
+    padding: 24px 20px;
+  }
+
+  .register-heading h1 {
+    letter-spacing: -1.2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .register-card {
+    animation: none;
+  }
+
+  .register-input,
+  .register-submit {
+    transition: none;
+  }
+}

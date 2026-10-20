@@ -1,0 +1,242 @@
+
+.experiences-section {
+  padding-block: clamp(88px, 12vw, 168px);
+  overflow: clip;
+  background: var(--color-cream);
+  color: var(--color-ink);
+
+  &__inner {
+    width: min(100% - var(--page-gutter) * 2, 1440px);
+    margin-inline: auto;
+  }
+
+  &__heading {
+    margin-bottom: clamp(48px, 7vw, 90px);
+  }
+
+  &__title-row {
+    display: grid;
+    grid-template-columns: 1.2fr 0.6fr;
+    align-items: end;
+    gap: 40px;
+
+    h2 {
+      margin: 0;
+      font-size: clamp(3rem, 7vw, 7rem);
+      font-weight: 400;
+      letter-spacing: -0.06em;
+      line-height: 0.94;
+
+      em {
+        color: var(--color-bronze);
+        font-family: var(--font-display);
+        font-weight: 400;
+      }
+    }
+  }
+
+  &__intro {
+    max-width: 400px;
+    margin: 0 0 8px;
+    color: var(--color-text-muted);
+    font-size: 0.95rem;
+    line-height: 1.9;
+  }
+
+  &__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    gap: clamp(18px, 3vw, 44px);
+  }
+}
+
+.experience-card {
+  min-width: 0;
+
+  &:nth-child(2) {
+    margin-top: 70px;
+  }
+
+  &:nth-child(3) {
+    margin-top: 135px;
+  }
+
+  &__image-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  &__image {
+    position: relative;
+    overflow: hidden;
+    aspect-ratio: 0.78;
+    background: var(--color-champagne);
+
+    img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 700ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    }
+
+    &::after {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        180deg,
+        rgba(28, 25, 23, 0.18),
+        transparent 30%,
+        transparent 65%,
+        rgba(28, 25, 23, 0.12)
+      );
+      content: "";
+      pointer-events: none;
+    }
+  }
+
+  &__image-link:hover img {
+    transform: scale(1.055);
+  }
+
+  &__number {
+    position: absolute;
+    z-index: 1;
+    top: 18px;
+    left: 18px;
+    color: white;
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+  }
+
+  &__arrow {
+    position: absolute;
+    z-index: 1;
+    right: 16px;
+    bottom: 16px;
+    display: grid;
+    width: 44px;
+    height: 44px;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 50%;
+    color: white;
+    transition: background 250ms ease, color 250ms ease;
+  }
+
+  &__image-link:hover &__arrow {
+    background: var(--color-ivory);
+    color: var(--color-ink);
+  }
+
+  &__body {
+    padding-top: 24px;
+  }
+
+  &__subtitle {
+    margin: 0 0 12px;
+    color: var(--color-bronze);
+    font-size: 0.58rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: clamp(1.6rem, 2.4vw, 2.4rem);
+    font-weight: 400;
+    letter-spacing: -0.045em;
+  }
+
+  &__description {
+    max-width: 360px;
+    margin: 14px 0 0;
+    color: var(--color-text-muted);
+    font-size: 0.88rem;
+    line-height: 1.85;
+  }
+
+  &__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 22px;
+    color: var(--color-ink);
+    font-size: 0.76rem;
+    text-decoration: none;
+    transition: gap 220ms ease, color 220ms ease;
+
+    &:hover {
+      gap: 18px;
+      color: var(--color-bronze);
+    }
+  }
+}
+
+@media (max-width: 900px) {
+  .experiences-section {
+    &__title-row {
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+
+    &__intro {
+      max-width: 540px;
+    }
+
+    &__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      row-gap: 48px;
+    }
+  }
+
+  .experience-card {
+    &:nth-child(2),
+    &:nth-child(3) {
+      margin-top: 0;
+    }
+
+    &:nth-child(3) {
+      grid-column: 1 / -1;
+      width: min(100%, 520px);
+    }
+  }
+}
+
+@media (max-width: 560px) {
+  .experiences-section {
+    padding-block: 80px;
+
+    &__inner {
+      width: calc(100% - 36px);
+    }
+
+    &__title-row h2 {
+      font-size: clamp(2.8rem, 11vw, 4.5rem);
+    }
+
+    &__grid {
+      grid-template-columns: 1fr;
+      gap: 44px;
+    }
+  }
+
+  .experience-card:nth-child(3) {
+    grid-column: auto;
+    width: 100%;
+  }
+
+  .experience-card__image {
+    aspect-ratio: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .experience-card__image img,
+  .experience-card__arrow,
+  .experience-card__link {
+    transition: none;
+  }
+}

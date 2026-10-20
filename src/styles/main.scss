@@ -2,6 +2,7 @@
 @use "./base/reset";
 @use "./components/admin";
 @use "./components/customer/index";
+@use "./components/public";
 
 
 
@@ -227,7 +228,7 @@ button:disabled {
 }
 
 .auth-layout__content {
-  width: min(100%, 520px);
+  width: 100%;
 }
 
 .auth-layout__back {
@@ -367,5 +368,110 @@ button:disabled {
 
   .dashboard-main {
     padding: 24px 20px;
+  }
+}
+/* Public website foundation */
+
+.public-site {
+  overflow: clip;
+}
+
+.public-site .site-header {
+  border-bottom: 0;
+}
+
+.public-site .page-footer {
+  position: relative;
+  z-index: 1;
+  background: var(--color-ivory);
+}
+
+.home-story-placeholder {
+  position: relative;
+  padding-block: clamp(90px, 13vw, 190px);
+  background: var(--color-ivory);
+  color: var(--color-ink);
+
+  .container {
+    display: grid;
+    justify-items: start;
+    gap: 26px;
+  }
+
+  .display-heading {
+    max-width: 1000px;
+    font-size: clamp(3rem, 7vw, 7rem);
+    line-height: 0.96;
+  }
+
+  &__copy {
+    max-width: 560px;
+    color: var(--color-text-muted);
+    font-size: 1rem;
+    line-height: 1.9;
+  }
+}
+
+@media (max-width: 600px) {
+  .home-story-placeholder {
+    padding-block: 88px;
+
+    .display-heading {
+      font-size: clamp(2.8rem, 11vw, 4rem);
+    }
+  }
+}
+
+
+/* ADDED: Premium public website styling only.
+   Existing dashboard/auth styles are not being replaced. */
+.public-site {
+  overflow: clip;
+}
+
+.public-site .site-header {
+  border-bottom: 0;
+}
+
+.public-site .page-footer {
+  position: relative;
+  z-index: 1;
+  background: var(--color-ivory);
+}
+
+/* ADDED: Homepage story section and Our Story scroll target. */
+.home-story-placeholder {
+  position: relative;
+  padding-block: clamp(90px, 13vw, 190px);
+  background: var(--color-ivory);
+  color: var(--color-ink);
+
+  .container {
+    display: grid;
+    justify-items: start;
+    gap: 26px;
+  }
+
+  .display-heading {
+    max-width: 1000px;
+    font-size: clamp(3rem, 7vw, 7rem);
+    line-height: 0.96;
+  }
+
+  &__copy {
+    max-width: 560px;
+    color: var(--color-text-muted);
+    font-size: 1rem;
+    line-height: 1.9;
+  }
+}
+
+@media (max-width: 600px) {
+  .home-story-placeholder {
+    padding-block: 88px;
+
+    .display-heading {
+      font-size: clamp(2.8rem, 11vw, 4rem);
+    }
   }
 }
