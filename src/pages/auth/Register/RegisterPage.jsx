@@ -23,18 +23,24 @@ export default function RegisterPage() {
     password: "",
     confirmPassword: "",
   });
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
 
+  const isLoading = status === "loading";
+
   function updateField(event) {
     const { name, value } = event.target;
 
-    setForm((current) => ({ ...current, [name]: value }));
-    setError("");
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
 
-    if (status !== "idle") setStatus("idle");
+    setError("");
+    setStatus("idle");
   }
 
   async function handleSubmit(event) {
@@ -73,7 +79,6 @@ export default function RegisterPage() {
     try {
       const response = await fetch(REGISTER_API, {
         method: "POST",
-        credentials: "include",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
@@ -83,19 +88,22 @@ export default function RegisterPage() {
           email,
           password: form.password,
           confirm_password: form.confirmPassword,
-          role: "customer",
         }),
       });
 
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(
+        const firstError =
+          data.email?.[0] ||
+          data.name?.[0] ||
+          data.password?.[0] ||
+          data.confirm_password?.[0] ||
           data.detail ||
-            data.message ||
-            data.email?.[0] ||
-            data.password?.[0] ||
-            "We couldn't create your account. Please try again."
+          data.message;
+
+        throw new Error(
+          firstError || "We couldn't create your account. Please try again."
         );
       }
 
@@ -109,8 +117,7 @@ export default function RegisterPage() {
     } catch (err) {
       setStatus("error");
       setError(
-        err.message ||
-          "Unable to connect. Please try again in a moment."
+        err.message || "Unable to connect. Please try again in a moment."
       );
     }
   }
@@ -119,38 +126,44 @@ export default function RegisterPage() {
     <main className="register-page">
       <div className="register-page__ornament" aria-hidden="true" />
 
-      <section
-        className="register-card"
-        aria-labelledby="register-title"
-      >
-        <Link to="/" className="register-brand" aria-label="Little Click Studio home">
+      <section className="register-card" aria-labelledby="register-title">
+        <Link
+          to="/"
+          className="register-brand"
+          aria-label="Little Click Studio home"
+        >
           <span className="register-brand__symbol">
             <Sparkles size={21} strokeWidth={1.5} />
           </span>
+
           <span className="register-brand__copy">
             <strong>Little Click Studio</strong>
             <small>SOUTH BOPAL · AHMEDABAD</small>
           </span>
         </Link>
 
-        <div className="register-heading">
+        <header className="register-heading">
           <p className="register-eyebrow">A PLACE FOR YOUR MEMORIES</p>
+
           <h1 id="register-title">
             Your story,
             <br />
             <em>starts here.</em>
           </h1>
+
           <p className="register-description">
-            Create your studio account to keep your bookings and
-            photography memories together.
+            Create your customer account to manage your bookings
+            and keep your photography memories together.
           </p>
-        </div>
+        </header>
 
         <form className="register-form" onSubmit={handleSubmit} noValidate>
           <div className="register-field">
             <label htmlFor="register-name">Full name</label>
+
             <div className="register-input">
               <UserRound size={18} aria-hidden="true" />
+
               <input
                 id="register-name"
                 name="name"
@@ -160,15 +173,17 @@ export default function RegisterPage() {
                 value={form.name}
                 onChange={updateField}
                 required
-                disabled={status === "loading"}
+                disabled={isLoading}
               />
             </div>
           </div>
 
           <div className="register-field">
             <label htmlFor="register-email">Email address</label>
+
             <div className="register-input">
               <Mail size={18} aria-hidden="true" />
+
               <input
                 id="register-email"
                 name="email"
@@ -178,15 +193,17 @@ export default function RegisterPage() {
                 value={form.email}
                 onChange={updateField}
                 required
-                disabled={status === "loading"}
+                disabled={isLoading}
               />
             </div>
           </div>
 
           <div className="register-field">
             <label htmlFor="register-password">Create password</label>
+
             <div className="register-input">
               <LockKeyhole size={18} aria-hidden="true" />
+
               <input
                 id="register-password"
                 name="password"
@@ -197,13 +214,15 @@ export default function RegisterPage() {
                 onChange={updateField}
                 minLength={8}
                 required
-                disabled={status === "loading"}
+                disabled={isLoading}
               />
+
               <button
                 className="register-password-toggle"
                 type="button"
                 onClick={() => setShowPassword((visible) => !visible)}
                 aria-label={showPassword ? "Hide password" : "Show password"}
+                disabled={isLoading}
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
@@ -214,8 +233,10 @@ export default function RegisterPage() {
             <label htmlFor="register-confirm-password">
               Confirm password
             </label>
+
             <div className="register-input">
               <LockKeyhole size={18} aria-hidden="true" />
+
               <input
                 id="register-confirm-password"
                 name="confirmPassword"
@@ -225,8 +246,9 @@ export default function RegisterPage() {
                 value={form.confirmPassword}
                 onChange={updateField}
                 required
-                disabled={status === "loading"}
+                disabled={isLoading}
               />
+
               <button
                 className="register-password-toggle"
                 type="button"
@@ -238,6 +260,7 @@ export default function RegisterPage() {
                     ? "Hide confirmation password"
                     : "Show confirmation password"
                 }
+                disabled={isLoading}
               >
                 {showConfirmPassword ? (
                   <EyeOff size={18} />
@@ -257,14 +280,13 @@ export default function RegisterPage() {
           <button
             className="register-submit"
             type="submit"
-            disabled={status === "loading"}
+            disabled={isLoading}
           >
             <span>
-              {status === "loading"
-                ? "Creating your account…"
-                : "Create my account"}
+              {isLoading ? "Creating your account..." : "Create account"}
             </span>
-            {status !== "loading" && <ArrowRight size={18} />}
+
+            {!isLoading && <ArrowRight size={18} />}
           </button>
 
           <p className="register-terms">
@@ -282,6 +304,7 @@ export default function RegisterPage() {
         </p>
 
         <p className="register-security">
+          <LockKeyhole size={13} />
           Secure access · Your memories remain yours
         </p>
       </section>

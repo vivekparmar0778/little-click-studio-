@@ -5,32 +5,46 @@ import {
   createContext,
   useCallback,
   useContext,
-  
+  useEffect,
   useState,
 } from "react";
 
 const AuthContext = createContext(null);
 
-// Replace these paths with the actual Django API routes.
 const AUTH_ENDPOINTS = {
   me: "/api/auth/me/",
   login: "/api/auth/login/",
-  logout: "/api/auth/logout/",
 };
+
+const TOKEN_KEY = "lcs_auth_token";
 
 const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const refreshUser = useCallback(async () => {
+    const token = sessionStorage.getItem(TOKEN_KEY);
+
+    if (!token) {
+      setUser(null);
+      setLoading(false);
+      return null;
+    }
+
     try {
       const response = await fetch(AUTH_ENDPOINTS.me, {
         method: "GET",
-        credentials: "include",
-        headers: { Accept: "application/json" },
+        headers: {
+          Accept: "application/json",
+          Authorization: `Token ${token}`,
+        },
       });
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          sessionStorage.removeItem(TOKEN_KEY);
+        }
+
         setUser(null);
         return null;
       }
@@ -48,12 +62,13 @@ const AuthProvider = ({ children }) => {
     }
   }, []);
 
-
+  useEffect(() => {
+    refreshUser();
+  }, [refreshUser]);
 
   const login = useCallback(async (credentials) => {
     const response = await fetch(AUTH_ENDPOINTS.login, {
       method: "POST",
-      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
@@ -73,36 +88,34 @@ const AuthProvider = ({ children }) => {
       );
     }
 
-    // Prefer the server's authenticated-user endpoint as the
-    // source of truth for the user's role and permissions.
+    if (!data.token) {
+      throw new Error("The server did not return an authentication token.");
+    }
+
+    sessionStorage.setItem(TOKEN_KEY, data.token);
+
     const currentUser = await refreshUser();
 
     if (!currentUser) {
+      sessionStorage.removeItem(TOKEN_KEY);
       throw new Error(
-        "Sign-in response received, but the authenticated session could not be verified."
+        "Login succeeded, but the authenticated session could not be verified."
       );
     }
 
     return currentUser;
   }, [refreshUser]);
 
-  const logout = useCallback(async () => {
-    try {
-      await fetch(AUTH_ENDPOINTS.logout, {
-        method: "POST",
-        credentials: "include",
-        headers: { Accept: "application/json" },
-      });
-    } finally {
-      setUser(null);
-    }
+  const logout = useCallback(() => {
+    sessionStorage.removeItem(TOKEN_KEY);
+    setUser(null);
   }, []);
 
   const value = {
     user,
     loading,
     isAuthenticated: Boolean(user),
-    isAdmin: user?.role === "admin" || user?.is_staff === true,
+    isAdmin: user?.is_staff === true,
     login,
     logout,
     refreshUser,

@@ -37,7 +37,7 @@ import RegisterPageComponent from "./pages/auth/Register/RegisterPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPassword/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPassword/ResetPasswordPage";
 
-const SESSION_API = "/api/auth/me/";
+
 
 const customerLinks = [
   { to: "/dashboard", label: "Overview", end: true },
@@ -47,10 +47,15 @@ const customerLinks = [
   { to: "/dashboard/profile", label: "My profile" },
 ];
 
+const SESSION_API = "/api/auth/me/";
+
 function normalizeRole(user) {
-  return String(user?.role || user?.user_type || "")
-    .trim()
-    .toLowerCase();
+  if (!user) return "";
+
+  if (user.is_superuser === true) return "superuser";
+  if (user.is_staff === true) return "admin";
+
+  return "customer";
 }
 
 function getRoleHome(role) {
@@ -282,10 +287,10 @@ function CustomerRoutes() {
 
 /* ADMIN ROUTES — authorized staff roles only */
 function AdminRoutes() {
- // const adminRoles = ["admin", "staff", "superuser"];
+   const adminRoles = ["admin", "staff", "superuser"];
 
   return (
-   // <Route element={<RequireRole allowedRoles={adminRoles} />}>
+    <Route element={<RequireRole allowedRoles={adminRoles} />}>
       <Route path="admin" element={<AdminLayout />}>
         <Route index element={<AdminDashboard />} />
         <Route path="bookings" element={<AdminBookings />} />
@@ -296,7 +301,7 @@ function AdminRoutes() {
         <Route path="reviews" element={<AdminReviews />} />
         <Route path="settings" element={<AdminSettings />} />
       </Route>
-   // </Route>
+    </Route>
   );
 }
 
