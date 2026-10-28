@@ -38,6 +38,11 @@ import RegisterPageComponent from "./pages/auth/Register/RegisterPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPassword/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPassword/ResetPasswordPage";
 
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> origin/main
 const customerLinks = [
   { to: "/dashboard", label: "Overview", end: true },
   { to: "/dashboard/bookings", label: "My bookings" },
@@ -45,6 +50,8 @@ const customerLinks = [
   { to: "/dashboard/payments", label: "Payments" },
   { to: "/dashboard/profile", label: "My profile" },
 ];
+
+const SESSION_API = "/api/auth/me/";
 
 function normalizeRole(user) {
   if (!user) return "";
@@ -234,7 +241,11 @@ function CustomerRoutes() {
 
 /* ADMIN ROUTES — authorized staff roles only */
 function AdminRoutes() {
+<<<<<<< HEAD
   const adminRoles = ["admin", "staff", "superuser"];
+=======
+   const adminRoles = ["admin", "staff", "superuser"];
+>>>>>>> origin/main
 
   return (
     <Route element={<RequireRole allowedRoles={adminRoles} />}>
