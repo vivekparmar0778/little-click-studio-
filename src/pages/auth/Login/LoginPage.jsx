@@ -8,14 +8,18 @@ import {
   LockKeyhole,
   Mail,
   Sparkles,
+  ShieldCheck,
+  UserRound,
 } from "lucide-react";
+import { useAuth } from "../../../context/AuthContext";
 import "./LoginPage.scss";
 
-const LOGIN_API = "/api/auth/login/";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const { login, logout } = useAuth();
 
+  const [loginType, setLoginType] = useState("customer");
   const [form, setForm] = useState({
     email: "",
     password: "",
@@ -27,9 +31,16 @@ export default function LoginPage() {
   function updateField(event) {
     const { name, value } = event.target;
     setForm((current) => ({ ...current, [name]: value }));
+    setError("");
+    setStatus("idle");
+  }
 
-    if (error) setError("");
-    if (status !== "idle") setStatus("idle");
+  function changeLoginType(type) {
+    if (type === loginType || status === "loading") return;
+
+    setLoginType(type);
+    setError("");
+    setStatus("idle");
   }
 
   async function handleSubmit(event) {
@@ -47,61 +58,57 @@ export default function LoginPage() {
     setStatus("loading");
 
     try {
-      const response = await fetch(LOGIN_API, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email,
-          password: form.password,
-        }),
+      const user = await login({
+        email,
+        password: form.password,
       });
 
-      const data = await response.json().catch(() => ({}));
+      // The backend must return is_staff from the authenticated /me endpoint.
+      const isAdmin = user?.is_staff === true;
 
-      if (!response.ok) {
+      if (loginType === "admin" && !isAdmin) {
+        await logout();
         throw new Error(
-          data.detail ||
-            data.message ||
-            "Those details couldn't be verified. Please try again."
+          "This account does not have administrator access. Please choose Customer Login."
         );
       }
 
-      const user = data.user || data;
-      const role = String(user.role || user.user_type || "")
-        .trim()
-        .toLowerCase();
-
-      if (["admin", "staff", "superuser"].includes(role)) {
-        navigate("/admin", { replace: true });
-      } else if (role === "customer") {
-        navigate("/dashboard", { replace: true });
-      } else {
+      if (loginType === "customer" && isAdmin) {
+        await logout();
         throw new Error(
-          "Your account role could not be verified. Please contact the studio."
+          "This is an administrator account. Please choose Admin Login."
         );
       }
+
+      setStatus("success");
+
+      navigate(isAdmin ? "/admin" : "/dashboard", {
+        replace: true,
+      });
     } catch (err) {
       setStatus("error");
       setError(
-        err.message ||
-          "Unable to connect. Please try again in a moment."
+        err.message || "Unable to sign in. Please try again."
       );
     }
   }
+
+  const isAdminLogin = loginType === "admin";
 
   return (
     <main className="auth-page">
       <div className="auth-page__ornament" aria-hidden="true" />
 
       <section className="auth-card" aria-labelledby="login-title">
-        <Link to="/" className="auth-brand" aria-label="Little Click Studio home">
+        <Link
+          to="/"
+          className="auth-brand"
+          aria-label="Little Click Studio home"
+        >
           <span className="auth-brand__symbol">
             <Sparkles size={21} strokeWidth={1.5} />
           </span>
+
           <span className="auth-brand__copy">
             <strong>Little Click Studio</strong>
             <small>SOUTH BOPAL · AHMEDABAD</small>
@@ -110,21 +117,75 @@ export default function LoginPage() {
 
         <div className="auth-heading">
           <p className="auth-eyebrow">WELCOME BACK</p>
-          <h1 id="login-title">
-            Your moments,
-            <br />
-            <em>beautifully kept.</em>
+
+          <h1 id="login-title" key={loginType} className="auth-mode-heading">
+            {isAdminLogin ? (
+              <>
+                Your studio,
+                <br />
+                <em>in your hands.</em>
+              </>
+            ) : (
+              <>
+                Your moments,
+                <br />
+                <em>beautifully kept.</em>
+              </>
+            )}
           </h1>
-          <p className="auth-description">
-            Sign in to revisit your memories and manage your studio experience.
+
+          <p className="auth-description" key={`description-${loginType}`}>
+            {isAdminLogin
+              ? "Sign in to manage your studio and customer experience."
+              : "Sign in to revisit your memories and manage your studio experience."}
           </p>
         </div>
+
+        <div
+          className="auth-role-selector"
+          role="group"
+          aria-label="Choose login type"
+        >
+          <button
+            type="button"
+            className={`auth-role-option ${
+              loginType === "customer" ? "is-active" : ""
+            }`}
+            onClick={() => changeLoginType("customer")}
+            aria-pressed={loginType === "customer"}
+            disabled={status === "loading"}
+          >
+            <UserRound size={17} />
+            <span>Customer</span>
+          </button>
+
+          <button
+            type="button"
+            className={`auth-role-option ${
+              loginType === "admin" ? "is-active" : ""
+            }`}
+            onClick={() => changeLoginType("admin")}
+            aria-pressed={loginType === "admin"}
+            disabled={status === "loading"}
+          >
+            <ShieldCheck size={17} />
+            <span>Admin</span>
+          </button>
+        </div>
+
+        <p className="auth-role-hint" key={`hint-${loginType}`}>
+          {isAdminLogin
+            ? "Authorized studio administrators only"
+            : "Access your personal customer account"}
+        </p>
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
           <div className="auth-field">
             <label htmlFor="login-email">Email address</label>
+
             <div className="auth-input">
               <Mail size={18} aria-hidden="true" />
+
               <input
                 id="login-email"
                 type="email"
@@ -147,6 +208,7 @@ export default function LoginPage() {
 
             <div className="auth-input">
               <LockKeyhole size={18} aria-hidden="true" />
+
               <input
                 id="login-password"
                 type={showPassword ? "text" : "password"}
@@ -158,6 +220,7 @@ export default function LoginPage() {
                 required
                 disabled={status === "loading"}
               />
+
               <button
                 className="auth-password-toggle"
                 type="button"
@@ -181,19 +244,37 @@ export default function LoginPage() {
             disabled={status === "loading"}
           >
             <span>
-              {status === "loading" ? "Signing you in…" : "Sign in"}
+              {status === "loading"
+                ? "Signing you in…"
+                : isAdminLogin
+                  ? "Sign in as Admin"
+                  : "Sign in as Customer"}
             </span>
+
             {status !== "loading" && <ArrowRight size={18} />}
           </button>
         </form>
 
         <div className="auth-divider">
-          <span>YOUR LITTLE MOMENTS AWAIT</span>
+          <span>
+            {isAdminLogin
+              ? "STUDIO MANAGEMENT"
+              : "YOUR LITTLE MOMENTS AWAIT"}
+          </span>
         </div>
 
-        <p className="auth-switch">
-          New to our studio? <Link to="/register">Create an account</Link>
-        </p>
+        {!isAdminLogin && (
+          <p className="auth-switch">
+            New to our studio?{" "}
+            <Link to="/register">Create an account</Link>
+          </p>
+        )}
+
+        {isAdminLogin && (
+          <p className="auth-switch auth-admin-note">
+            Administrator access is restricted to authorized accounts.
+          </p>
+        )}
 
         <p className="auth-security">
           Secure access · Your memories remain yours

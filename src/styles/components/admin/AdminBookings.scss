@@ -1078,3 +1078,127 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Data and action controls used by the API-ready bookings screen. */
+.admin-bookings {
+  &__heading-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  &__error {
+    margin: 0 0 18px;
+    border: 1px solid #f0cdca;
+    border-left: 3px solid #a63832;
+    border-radius: 10px;
+    padding: 12px 15px;
+    background: #fff0ef;
+    color: #852b26;
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  &__status-control {
+    display: grid;
+    justify-items: start;
+    gap: 5px;
+
+    select {
+      max-width: 140px;
+      min-height: 30px;
+      border: 1px solid var(--bookings-border);
+      border-radius: 7px;
+      padding: 4px 7px;
+      background: var(--bookings-surface);
+      color: var(--bookings-muted);
+      font-size: 10px;
+      cursor: pointer;
+
+      &:focus-visible {
+        outline: 2px solid var(--bookings-accent);
+        outline-offset: 2px;
+      }
+    }
+  }
+
+  &__pagination {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    border-top: 1px solid var(--bookings-border);
+    padding: 16px 20px;
+
+    > span {
+      color: var(--bookings-muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .admin-bookings__secondary-button {
+      min-height: 36px;
+      padding: 7px 11px;
+      font-size: 11px;
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+    }
+  }
+
+  &__confirm-delete {
+    padding: 22px 24px 24px;
+
+    > p {
+      margin: 0;
+      color: var(--bookings-muted);
+      font-size: 13px;
+      line-height: 1.7;
+      overflow-wrap: anywhere;
+    }
+
+    strong {
+      color: var(--bookings-ink);
+    }
+
+    .admin-bookings__modal-footer {
+      margin-top: 22px;
+    }
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-bookings {
+    &__heading {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    &__heading-actions {
+      justify-content: flex-start;
+    }
+
+    &__pagination {
+      justify-content: space-between;
+      gap: 8px;
+      padding-inline: 12px;
+    }
+
+    &__confirm-delete {
+      padding: 18px 16px 20px;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-bookings__heading-actions,
+  .admin-bookings__status-control,
+  .admin-bookings__pagination {
+    scroll-behavior: auto;
+  }
+}

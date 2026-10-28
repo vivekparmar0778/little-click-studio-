@@ -172,12 +172,12 @@ export default function HeroSection() {
             made just for you.
           </p>
 
-          <a className="hero-section__scroll" href="#our-story">
-            <span>Scroll to discover</span>
-            <span className="hero-section__scroll-icon">
-              <ArrowDown size={16} aria-hidden="true" />
-            </span>
-          </a>
+          <Link className="hero-section__scroll" to="/about">
+  <span>Discover our studio</span>
+  <span className="hero-section__scroll-icon">
+    <ArrowDown size={16} aria-hidden="true" />
+  </span>
+</Link>
 
           <p className="hero-section__location">
             SOUTH BOPAL

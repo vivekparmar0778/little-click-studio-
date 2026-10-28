@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../../../context/AuthContext";
+import { createAdminReviewsService } from "../../../services/adminReviewsService";
 import {
   Check,
   Download,
@@ -10,53 +12,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-
-const initialReviews = [
-  {
-    id: "REV-001",
-    customer: "Priya Mehta",
-    service: "Maternity Portraits",
-    rating: 5,
-    date: "2026-10-15",
-    title: "An unforgettable experience",
-    message:
-      "The entire experience was beautiful. The team made us feel comfortable, and the photographs captured moments we will treasure forever.",
-    published: true,
-  },
-  {
-    id: "REV-002",
-    customer: "Aarav Sharma",
-    service: "Newborn Photography",
-    rating: 5,
-    date: "2026-10-12",
-    title: "So gentle and professional",
-    message:
-      "We loved the patience and care during our newborn session. The photographs turned out lovely, and the studio felt warm and welcoming.",
-    published: true,
-  },
-  {
-    id: "REV-003",
-    customer: "Riya Patel",
-    service: "Baby Milestone Session",
-    rating: 4,
-    date: "2026-10-10",
-    title: "Lovely memories",
-    message:
-      "A lovely session with beautiful photographs. We appreciated the attention to detail and the friendly team.",
-    published: false,
-  },
-  {
-    id: "REV-004",
-    customer: "Neha Desai",
-    service: "Family Portrait Session",
-    rating: 3,
-    date: "2026-10-08",
-    title: "A good experience",
-    message:
-      "The photographs were nice, and the team was helpful throughout the session.",
-    published: true,
-  },
-];
 
 const formatDate = (date) => {
   if (!date) return "—";
@@ -72,8 +27,7 @@ const formatDate = (date) => {
   });
 };
 
-const escapeCSV = (value) =>
-  `"${String(value ?? "").replace(/"/g, '""')}"`;
+const escapeCSV = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
 
 function RatingStars({ rating }) {
   return (
@@ -93,8 +47,45 @@ function RatingStars({ rating }) {
   );
 }
 
+const emptyForm = {
+  booking: "",
+  rating: "5",
+  title: "",
+  message: "",
+  published: false,
+};
+
+async function collectPages(fetchPage) {
+  const records = [];
+  let page = 1;
+  while (true) {
+    const response = await fetchPage(page);
+    if (Array.isArray(response)) return response;
+    if (!Array.isArray(response?.results))
+      throw new Error("Invalid server response.");
+    records.push(...response.results);
+    if (!response.next || !response.results.length) return records;
+    page += 1;
+  }
+}
+
+function normalizeReview(review) {
+  return {
+    ...review,
+    date: review.created_at.slice(0, 10),
+    published: review.is_published,
+  };
+}
+
 export default function AdminReviews() {
-  const [reviews, setReviews] = useState(initialReviews);
+  const { apiRequest } = useAuth();
+  const reviewsApi = useMemo(
+    () => createAdminReviewsService(apiRequest),
+    [apiRequest],
+  );
+  const [reviews, setReviews] = useState([]);
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [ratingFilter, setRatingFilter] = useState("all");
   const [visibilityFilter, setVisibilityFilter] = useState("all");
@@ -103,178 +94,260 @@ export default function AdminReviews() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [formError, setFormError] = useState("");
+  const mounted = useRef(false);
+  const version = useRef(0);
 
-  const filteredReviews = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  const fetchReviews = useCallback(async () => {
+    const records = await collectPages((page) =>
+      reviewsApi.list({ page, page_size: 100 }),
+    );
+    return records.map(normalizeReview);
+  }, [reviewsApi]);
 
-    const result = reviews.filter((review) => {
-      const matchesSearch = [
-        review.id,
-        review.customer,
-        review.service,
-        review.title,
-        review.message,
-      ].some((value) => value.toLowerCase().includes(query));
+  const refreshReviews = useCallback(async () => {
+    const currentVersion = ++version.current;
+    const records = await fetchReviews();
+    if (mounted.current && currentVersion === version.current)
+      setReviews(records);
+  }, [fetchReviews]);
 
-      const matchesRating =
-        ratingFilter === "all" ||
-        review.rating === Number(ratingFilter);
-
-      const matchesVisibility =
-        visibilityFilter === "all" ||
-        (visibilityFilter === "published" && review.published) ||
-        (visibilityFilter === "hidden" && !review.published);
-
-      return matchesSearch && matchesRating && matchesVisibility;
-    });
-
-    return [...result].sort((a, b) => {
-      switch (sortBy) {
-        case "oldest":
-          return a.date.localeCompare(b.date);
-        case "highest":
-          return b.rating - a.rating || b.date.localeCompare(a.date);
-        case "lowest":
-          return a.rating - b.rating || b.date.localeCompare(a.date);
-        case "customer":
-          return a.customer.localeCompare(b.customer);
-        case "newest":
-        default:
-          return b.date.localeCompare(a.date);
-      }
-    });
-  }, [reviews, search, ratingFilter, visibilityFilter, sortBy]);
-
-  const publishedCount = reviews.filter(
-    (review) => review.published,
-  ).length;
-
-  const hiddenCount = reviews.length - publishedCount;
-
-  const averageRating = reviews.length
-    ? (
-        reviews.reduce((total, review) => total + review.rating, 0) /
-        reviews.length
-      ).toFixed(1)
-    : "0.0";
-
-  const visibleIds = filteredReviews.map((review) => review.id);
-
-  const allVisibleSelected =
-    visibleIds.length > 0 &&
-    visibleIds.every((id) => selectedIds.includes(id));
+  useEffect(() => {
+    mounted.current = true;
+    let active = true;
+    const currentVersion = ++version.current;
+    fetchReviews()
+      .then((records) => {
+        if (active && currentVersion === version.current) setReviews(records);
+      })
+      .catch((error) => {
+        if (active) setNotice(error.message || "Unable to load reviews.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    collectPages((page) =>
+      reviewsApi.listBookings({ page, page_size: 100, status: "completed" }),
+    )
+      .then((records) => {
+        if (active)
+          setBookings(
+            records.filter((booking) => booking.status === "completed"),
+          );
+      })
+      .catch((error) => {
+        if (active)
+          setNotice(`Review form bookings could not load: ${error.message}`);
+      });
+    return () => {
+      active = false;
+      mounted.current = false;
+    };
+  }, [fetchReviews, reviewsApi]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !busyRef.current) {
         setSelectedReview(null);
         setDeleteTarget(null);
+        setFormOpen(false);
       }
     };
-
     window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const togglePublished = (review) => {
-    const nextPublished = !review.published;
+  const filteredReviews = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return reviews
+      .filter((review) => {
+        const matchesSearch = [
+          review.id,
+          review.customer,
+          review.service,
+          review.title,
+          review.message,
+        ].some((value) =>
+          String(value ?? "")
+            .toLowerCase()
+            .includes(query),
+        );
+        return (
+          matchesSearch &&
+          (ratingFilter === "all" || review.rating === Number(ratingFilter)) &&
+          (visibilityFilter === "all" ||
+            (visibilityFilter === "published"
+              ? review.published
+              : !review.published))
+        );
+      })
+      .sort((a, b) => {
+        if (sortBy === "oldest")
+          return a.created_at.localeCompare(b.created_at);
+        if (sortBy === "highest")
+          return (
+            b.rating - a.rating || b.created_at.localeCompare(a.created_at)
+          );
+        if (sortBy === "lowest")
+          return (
+            a.rating - b.rating || b.created_at.localeCompare(a.created_at)
+          );
+        if (sortBy === "customer") return a.customer.localeCompare(b.customer);
+        return b.created_at.localeCompare(a.created_at);
+      });
+  }, [reviews, search, ratingFilter, visibilityFilter, sortBy]);
+  const publishedCount = reviews.filter((review) => review.published).length;
+  const hiddenCount = reviews.length - publishedCount;
+  const averageRating = reviews.length
+    ? (
+        reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
+      ).toFixed(1)
+    : "0.0";
+  const visibleIds = filteredReviews.map((review) => review.id);
+  const allVisibleSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+  const eligibleBookings = bookings.filter(
+    (booking) =>
+      !reviews.some((review) => String(review.booking) === String(booking.id)),
+  );
 
-    setReviews((current) =>
-      current.map((item) =>
-        item.id === review.id
-          ? { ...item, published: nextPublished }
-          : item,
-      ),
-    );
-
-    setSelectedReview((current) =>
-      current?.id === review.id
-        ? { ...current, published: nextPublished }
-        : current,
-    );
-
-    setNotice(
-      `"${review.title}" ${
-        nextPublished ? "published" : "hidden"
-      } in this demo.`,
-    );
-  };
-
-  const toggleSelection = (id) => {
+  const toggleSelection = (id) =>
     setSelectedIds((current) =>
       current.includes(id)
-        ? current.filter((selectedId) => selectedId !== id)
+        ? current.filter((value) => value !== id)
         : [...current, id],
     );
-  };
-
-  const toggleSelectAllVisible = () => {
-    setSelectedIds((current) => {
-      if (allVisibleSelected) {
-        return current.filter((id) => !visibleIds.includes(id));
-      }
-
-      return [...new Set([...current, ...visibleIds])];
-    });
-  };
-
-  const updateSelectedReviews = (published) => {
-    if (selectedIds.length === 0) return;
-
-    const selectedIdSet = new Set(selectedIds);
-
-    setReviews((current) =>
-      current.map((review) =>
-        selectedIdSet.has(review.id)
-          ? { ...review, published }
-          : review,
-      ),
-    );
-
-    setSelectedReview((current) =>
-      current && selectedIdSet.has(current.id)
-        ? { ...current, published }
-        : current,
-    );
-
-    setNotice(
-      `${selectedIds.length} selected review(s) ${
-        published ? "published" : "hidden"
-      } in this demo.`,
-    );
-
-    setSelectedIds([]);
-  };
-
-  const confirmDelete = () => {
-    if (!deleteTarget) return;
-
-    const idsToDelete = Array.isArray(deleteTarget)
-      ? deleteTarget
-      : [deleteTarget.id];
-
-    const idsSet = new Set(idsToDelete);
-
-    setReviews((current) =>
-      current.filter((review) => !idsSet.has(review.id)),
-    );
-
+  const toggleSelectAllVisible = () =>
     setSelectedIds((current) =>
-      current.filter((id) => !idsSet.has(id)),
+      allVisibleSelected
+        ? current.filter((id) => !visibleIds.includes(id))
+        : [...new Set([...current, ...visibleIds])],
     );
 
-    setSelectedReview((current) =>
-      current && idsSet.has(current.id) ? null : current,
-    );
+  const togglePublished = async (review) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      const updated = normalizeReview(
+        await reviewsApi.setPublished(review.id, !review.published),
+      );
+      setReviews((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setSelectedReview((current) =>
+        current?.id === updated.id ? updated : current,
+      );
+      setNotice(`Review ${updated.published ? "published" : "hidden"}.`);
+    } catch (error) {
+      setNotice(error.message || "Unable to update review.");
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
 
+  const updateSelectedReviews = async (published) => {
+    if (busyRef.current || !selectedIds.length) return;
+    busyRef.current = true;
+    setBusy(true);
+    const successful = [];
+    const failures = [];
+    for (const id of selectedIds) {
+      try {
+        const updated = normalizeReview(
+          await reviewsApi.setPublished(id, published),
+        );
+        successful.push(id);
+        setReviews((current) =>
+          current.map((item) => (item.id === id ? updated : item)),
+        );
+        setSelectedReview((current) =>
+          current?.id === id ? updated : current,
+        );
+      } catch (error) {
+        failures.push(error.message);
+      }
+    }
+    setSelectedIds((current) =>
+      current.filter((id) => !successful.includes(id)),
+    );
     setNotice(
-      `${idsToDelete.length} review(s) deleted from this demo.`,
+      `${successful.length} review(s) ${published ? "published" : "hidden"}.${failures.length ? ` ${failures.length} failed: ${failures[0]}` : ""}`,
     );
+    busyRef.current = false;
+    setBusy(false);
+  };
 
+  const confirmDelete = async () => {
+    if (busyRef.current || !deleteTarget) return;
+    busyRef.current = true;
+    setBusy(true);
+    const ids = Array.isArray(deleteTarget)
+      ? [...deleteTarget]
+      : [deleteTarget.id];
+    const successful = [];
+    const failures = [];
+    for (const id of ids) {
+      try {
+        await reviewsApi.remove(id);
+        successful.push(id);
+        setReviews((current) => current.filter((review) => review.id !== id));
+        setSelectedReview((current) => (current?.id === id ? null : current));
+      } catch (error) {
+        failures.push(error.message);
+      }
+    }
+    setSelectedIds((current) =>
+      current.filter((id) => !successful.includes(id)),
+    );
     setDeleteTarget(null);
+    setNotice(
+      `${successful.length} review(s) deleted.${failures.length ? ` ${failures.length} failed: ${failures[0]}` : ""}`,
+    );
+    busyRef.current = false;
+    setBusy(false);
+  };
+
+  const openForm = () => {
+    setForm({ ...emptyForm });
+    setFormError("");
+    setFormOpen(true);
+  };
+  const saveOfflineReview = async (event) => {
+    event.preventDefault();
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setFormError("");
+    try {
+      const created = normalizeReview(
+        await reviewsApi.create({
+          booking: form.booking,
+          rating: Number(form.rating),
+          title: form.title.trim(),
+          message: form.message.trim(),
+          is_published: form.published,
+        }),
+      );
+      setReviews((current) => [created, ...current]);
+      setFormOpen(false);
+      setNotice("Customer feedback recorded successfully.");
+      try {
+        await refreshReviews();
+      } catch (error) {
+        setNotice(`Review saved. List refresh failed: ${error.message}`);
+      }
+    } catch (error) {
+      setFormError(error.message || "Unable to record review.");
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   };
 
   const exportCSV = () => {
@@ -287,6 +360,7 @@ export default function AdminReviews() {
       "Title",
       "Message",
       "Visibility",
+      "Source",
     ];
 
     const rows = filteredReviews.map((review) => [
@@ -298,6 +372,7 @@ export default function AdminReviews() {
       review.title,
       review.message,
       review.published ? "Published" : "Hidden",
+      review.source === "offline" ? "Recorded by admin" : "Website",
     ]);
 
     const csvContent = [headers, ...rows]
@@ -332,30 +407,31 @@ export default function AdminReviews() {
     <section className="admin-reviews">
       <header className="admin-reviews__header">
         <div>
-          <span className="admin-reviews__eyebrow">
-            CUSTOMER FEEDBACK
-          </span>
+          <span className="admin-reviews__eyebrow">CUSTOMER FEEDBACK</span>
           <h1>Reviews Management</h1>
-          <p>
-            Review customer feedback and manage published testimonials.
-          </p>
+          <p>Review customer feedback and manage published testimonials.</p>
         </div>
 
         <div className="admin-reviews__header-actions">
           <button
             type="button"
             className="admin-reviews__export"
+            onClick={openForm}
+            disabled={busy || loading}
+          >
+            Record customer feedback
+          </button>
+          <button
+            type="button"
+            className="admin-reviews__export"
             onClick={exportCSV}
-            disabled={filteredReviews.length === 0}
+            disabled={busy || filteredReviews.length === 0}
           >
             <Download size={17} />
             <span>Export CSV</span>
           </button>
 
-          <div
-            className="admin-reviews__header-icon"
-            aria-hidden="true"
-          >
+          <div className="admin-reviews__header-icon" aria-hidden="true">
             <MessageSquareQuote size={24} />
           </div>
         </div>
@@ -373,6 +449,8 @@ export default function AdminReviews() {
           </button>
         </div>
       )}
+
+      {loading && <p role="status">Loading reviews...</p>}
 
       <div className="admin-reviews__stats">
         <article className="admin-reviews__stat">
@@ -435,9 +513,7 @@ export default function AdminReviews() {
           <span>Visibility</span>
           <select
             value={visibilityFilter}
-            onChange={(event) =>
-              setVisibilityFilter(event.target.value)
-            }
+            onChange={(event) => setVisibilityFilter(event.target.value)}
           >
             <option value="all">All reviews</option>
             <option value="published">Published</option>
@@ -492,6 +568,7 @@ export default function AdminReviews() {
           <div className="admin-reviews__bulk-actions">
             <button
               type="button"
+              disabled={busy}
               onClick={() => updateSelectedReviews(true)}
             >
               <Eye size={16} />
@@ -500,6 +577,7 @@ export default function AdminReviews() {
 
             <button
               type="button"
+              disabled={busy}
               onClick={() => updateSelectedReviews(false)}
             >
               <EyeOff size={16} />
@@ -537,7 +615,7 @@ export default function AdminReviews() {
                   type="checkbox"
                   checked={allVisibleSelected}
                   onChange={toggleSelectAllVisible}
-                  disabled={filteredReviews.length === 0}
+                  disabled={busy || filteredReviews.length === 0}
                   aria-label="Select all visible reviews"
                 />
               </th>
@@ -566,7 +644,12 @@ export default function AdminReviews() {
                   <div className="admin-reviews__review-info">
                     <strong>{review.customer}</strong>
                     <span>{review.title}</span>
-                    <small>{review.id}</small>
+                    <small>
+                      {review.source === "offline"
+                        ? "Recorded by admin"
+                        : "Website review"}{" "}
+                      · {review.id}
+                    </small>
                   </div>
                 </td>
 
@@ -605,14 +688,13 @@ export default function AdminReviews() {
                     <button
                       type="button"
                       className="admin-reviews__action"
+                      disabled={busy}
                       onClick={() => togglePublished(review)}
                       aria-label={`${
                         review.published ? "Hide" : "Publish"
                       } review by ${review.customer}`}
                       title={
-                        review.published
-                          ? "Hide review"
-                          : "Publish review"
+                        review.published ? "Hide review" : "Publish review"
                       }
                     >
                       {review.published ? (
@@ -636,15 +718,13 @@ export default function AdminReviews() {
               </tr>
             ))}
 
-            {filteredReviews.length === 0 && (
+            {!loading && filteredReviews.length === 0 && (
               <tr>
                 <td colSpan={7}>
                   <div className="admin-reviews__empty">
                     <MessageSquareQuote size={26} />
                     <strong>No reviews found</strong>
-                    <span>
-                      Try another search or filter combination.
-                    </span>
+                    <span>Try another search or filter combination.</span>
                     <button
                       type="button"
                       className="admin-reviews__text-button"
@@ -678,9 +758,7 @@ export default function AdminReviews() {
             <header className="admin-reviews__modal-header">
               <div>
                 <span>REVIEW DETAILS · {selectedReview.id}</span>
-                <h2 id="review-modal-title">
-                  {selectedReview.title}
-                </h2>
+                <h2 id="review-modal-title">{selectedReview.title}</h2>
               </div>
 
               <button
@@ -735,6 +813,7 @@ export default function AdminReviews() {
             <button
               type="button"
               className="admin-reviews__publish"
+              disabled={busy}
               onClick={() => togglePublished(selectedReview)}
             >
               {selectedReview.published
@@ -779,7 +858,7 @@ export default function AdminReviews() {
               {Array.isArray(deleteTarget)
                 ? `You are about to delete ${deleteTarget.length} selected review(s).`
                 : `You are about to delete "${deleteTarget.title}" by ${deleteTarget.customer}.`}{" "}
-              This action cannot be undone in this demo.
+              This permanently deletes the selected feedback.
             </p>
 
             <div className="admin-reviews__confirm-actions">
@@ -794,12 +873,171 @@ export default function AdminReviews() {
               <button
                 type="button"
                 className="admin-reviews__delete-confirm"
+                disabled={busy}
                 onClick={confirmDelete}
               >
                 <Trash2 size={16} />
                 Confirm delete
               </button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {formOpen && (
+        <div
+          className="admin-reviews__backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !busyRef.current)
+              setFormOpen(false);
+          }}
+        >
+          <section
+            className="admin-reviews__modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="offline-review-title"
+          >
+            <header className="admin-reviews__modal-header">
+              <div>
+                <span>OFFLINE CUSTOMER FEEDBACK</span>
+                <h2 id="offline-review-title">Record customer feedback</h2>
+              </div>
+              <button
+                type="button"
+                className="admin-reviews__action"
+                disabled={busy}
+                onClick={() => setFormOpen(false)}
+                aria-label="Close form"
+              >
+                <X size={19} />
+              </button>
+            </header>
+            <p>
+              Record the customer's actual feedback with their permission. This
+              will be labelled as recorded by admin.
+            </p>
+            <form onSubmit={saveOfflineReview}>
+              <fieldset
+                disabled={busy}
+                style={{
+                  border: 0,
+                  padding: 0,
+                  margin: 0,
+                  display: "grid",
+                  gap: "16px",
+                  minWidth: 0,
+                }}
+              >
+                <label>
+                  Completed booking
+                  <select
+                    required
+                    value={form.booking}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        booking: event.target.value,
+                      }))
+                    }
+                    style={{ display: "block", width: "100%" }}
+                  >
+                    <option value="">Select a completed booking</option>
+                    {eligibleBookings.map((booking) => (
+                      <option key={booking.id} value={booking.id}>
+                        {booking.contact_name ||
+                          booking.customer_name ||
+                          booking.customer_email ||
+                          "Customer"}{" "}
+                        · {booking.service_name || "Session"} · {booking.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {!eligibleBookings.length && (
+                  <p>No completed bookings without a review are available.</p>
+                )}
+                <label>
+                  Rating
+                  <select
+                    value={form.rating}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        rating: event.target.value,
+                      }))
+                    }
+                    style={{ display: "block", width: "100%" }}
+                  >
+                    {[5, 4, 3, 2, 1].map((rating) => (
+                      <option key={rating} value={rating}>
+                        {rating} / 5
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Review title
+                  <input
+                    required
+                    maxLength={150}
+                    value={form.title}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        title: event.target.value,
+                      }))
+                    }
+                    style={{ display: "block", width: "100%" }}
+                  />
+                </label>
+                <label>
+                  Customer feedback
+                  <textarea
+                    required
+                    minLength={10}
+                    maxLength={2000}
+                    rows={5}
+                    value={form.message}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        message: event.target.value,
+                      }))
+                    }
+                    style={{ display: "block", width: "100%" }}
+                  />
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={form.published}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        published: event.target.checked,
+                      }))
+                    }
+                  />{" "}
+                  Publish on the website
+                </label>
+                {formError && <p role="alert">{formError}</p>}
+                <button
+                  type="submit"
+                  className="admin-reviews__publish"
+                  disabled={busy || !eligibleBookings.length}
+                >
+                  {busy ? "Saving..." : "Save customer feedback"}
+                </button>
+                <button
+                  type="button"
+                  className="admin-reviews__close"
+                  onClick={() => setFormOpen(false)}
+                >
+                  Cancel
+                </button>
+              </fieldset>
+            </form>
           </section>
         </div>
       )}

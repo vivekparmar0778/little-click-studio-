@@ -1,14 +1,13 @@
-
 import { useState } from "react";
 import { ArrowUpRight, Clock3, MapPin, Sparkles } from "lucide-react";
-
+import { createInquiry } from "../../../services/inquiryService";
 
 const PHOTOGRAPHY_TYPES = [
-  "Newborn Photography",
-  "Maternity Photography",
-  "Baby & Milestones",
-  "Family Photography",
-  "Not sure yet",
+  { value: "newborn", label: "Newborn Photography" },
+  { value: "maternity", label: "Maternity Photography" },
+  { value: "milestones", label: "Baby & Milestones" },
+  { value: "family", label: "Family Photography" },
+  { value: "undecided", label: "Not sure yet" },
 ];
 
 const INITIAL_FORM = {
@@ -23,6 +22,8 @@ const INITIAL_FORM = {
 function ContactPage() {
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [notice, setNotice] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [noticeType, setNoticeType] = useState("success");
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -35,13 +36,34 @@ function ContactPage() {
     setNotice("");
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+    if (isSubmitting) return;
 
-    // Frontend validation only. Django API integration is pending.
-    setNotice(
-      "Your details passed frontend validation. Online submission will be available once the studio's backend is connected."
-    );
+    setIsSubmitting(true);
+    setNotice("");
+
+    try {
+      await createInquiry({
+        name: formData.name.trim(),
+        email: formData.email.trim().toLowerCase(),
+        phone: formData.phone.trim(),
+        photography_type: formData.photographyType,
+        preferred_date: formData.preferredDate || null,
+        message: formData.message.trim(),
+      });
+
+      setFormData(INITIAL_FORM);
+      setNoticeType("success");
+      setNotice("Thank you. Your inquiry has been sent to the studio.");
+    } catch (error) {
+      setNoticeType("error");
+      setNotice(
+        error.message || "Unable to send your inquiry. Please try again.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -59,8 +81,8 @@ function ContactPage() {
         </h1>
 
         <p className="contact-hero__description">
-          Tell us about the moments you want to preserve. We’ll help you
-          explore a photography experience that feels personal to your family.
+          Tell us about the moments you want to preserve. We’ll help you explore
+          a photography experience that feels personal to your family.
         </p>
 
         <div className="contact-hero__note">
@@ -80,9 +102,8 @@ function ContactPage() {
           </h2>
 
           <p className="contact-info__description">
-            Whether you’re expecting your little one, celebrating a new
-            arrival, or documenting another milestone, we’d love to hear from
-            you.
+            Whether you’re expecting your little one, celebrating a new arrival,
+            or documenting another milestone, we’d love to hear from you.
           </p>
 
           <div className="contact-info__details">
@@ -117,9 +138,7 @@ function ContactPage() {
 
         <div className="contact-form-card">
           <div className="contact-form-card__heading">
-            <span className="contact-form-card__eyebrow">
-              YOUR INQUIRY
-            </span>
+            <span className="contact-form-card__eyebrow">YOUR INQUIRY</span>
             <h2 id="contact-form-title">Tell us a little about it.</h2>
             <p>Fields marked with * are required.</p>
           </div>
@@ -185,18 +204,16 @@ function ContactPage() {
                   <option value="" disabled>
                     Choose an experience
                   </option>
-                  {PHOTOGRAPHY_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
+                  {PHOTOGRAPHY_TYPES.map(({ value, label }) => (
+                    <option key={value} value={value}>
+                      {label}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div className="contact-form__field contact-form__field--full">
-                <label htmlFor="contact-date">
-                  Preferred session date
-                </label>
+                <label htmlFor="contact-date">Preferred session date</label>
                 <input
                   id="contact-date"
                   name="preferredDate"
@@ -231,19 +248,26 @@ function ContactPage() {
             </div>
 
             {notice && (
-              <p className="contact-form__notice" role="status">
+              <p
+                className="contact-form__notice"
+                role={noticeType === "error" ? "alert" : "status"}
+              >
                 {notice}
               </p>
             )}
 
-            <button className="contact-form__submit" type="submit">
-              <span>Prepare my inquiry</span>
+            <button
+              className="contact-form__submit"
+              type="submit"
+              disabled={isSubmitting}
+            >
+              <span>{isSubmitting ? "Sending…" : "Send my inquiry"}</span>
               <ArrowUpRight size={19} strokeWidth={1.7} />
             </button>
 
             <p className="contact-form__privacy">
-              This form currently validates your details in the browser. It
-              does not send or save them to a server.
+              Your details will be sent to Little Click Studio so the team can
+              respond to your inquiry.
             </p>
           </form>
         </div>

@@ -1,0 +1,127 @@
+.reviews-section {
+  padding: clamp(64px, 8vw, 112px) 24px;
+  background: #f8f5f0;
+  color: #342c27;
+
+  &__inner {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  &__heading {
+    max-width: 640px;
+    margin-bottom: 40px;
+
+    .eyebrow {
+      margin: 0 0 16px;
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      color: #75634f;
+    }
+
+    h2 {
+      margin: 0 0 20px;
+      font-size: clamp(2.2rem, 5vw, 4rem);
+      line-height: 1.12;
+    }
+
+    > p:last-child {
+      line-height: 1.7;
+      color: #70665e;
+    }
+  }
+
+  &__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+  }
+
+  button {
+    padding: 10px 18px;
+    border: 1px solid #75634f;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+
+    &:hover {
+      background: #eee7dd;
+    }
+
+    &:focus-visible {
+      outline: 2px solid #75634f;
+      outline-offset: 4px;
+    }
+  }
+
+  @media (max-width: 900px) {
+    &__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 600px) {
+    &__grid {
+      grid-template-columns: 1fr;
+    }
+  }
+}
+
+.review-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: clamp(24px, 3vw, 36px);
+  border: 1px solid #e6ded4;
+  border-radius: 8px;
+  background: #fffdfa;
+
+  &__rating {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    color: #947444;
+  }
+
+  &__title {
+    margin: 0 0 14px;
+    font-size: 1.2rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  &__message {
+    margin: 0 0 28px;
+    color: #70665e;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  &__footer {
+    margin-top: auto;
+    padding-top: 20px;
+    border-top: 1px solid #e6ded4;
+  }
+
+  &__customer {
+    margin: 0 0 6px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  &__service {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #70665e;
+  }
+
+  &__source {
+    margin: 12px 0 0;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: #70665e;
+  }
+}

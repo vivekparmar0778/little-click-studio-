@@ -1,7 +1,8 @@
-
 import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { ArrowUpRight, Menu, X } from "lucide-react";
+import { ArrowUpRight, Menu, UserRound, X } from "lucide-react";
+
+import { useAuth } from "../../../context/AuthContext";
 
 const links = [
   { to: "/", label: "Home", end: true },
@@ -12,24 +13,47 @@ const links = [
 ];
 
 export default function SiteHeader() {
+  const { user, loading, isAuthenticated } = useAuth();
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(
-    () => window.scrollY > 32
+    () => window.scrollY > 32,
   );
 
-  useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 32);
-    };
+  const signedIn = isAuthenticated && Boolean(user);
+  const isAdmin =
+    user?.is_staff === true || user?.is_superuser === true;
 
-    handleScroll();
+  const dashboardPath = isAdmin ? "/admin" : "/dashboard";
+  const dashboardLabel = isAdmin ? "Admin dashboard" : "My dashboard";
+
+  const fullName = [user?.first_name, user?.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  const displayName =
+    fullName || user?.name || user?.email || "Your account";
+
+  const initials = (fullName || user?.name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => Array.from(part)[0])
+    .join("")
+    .toUpperCase();
+
+  useEffect(() => {
+    function handleScroll() {
+      setIsScrolled(window.scrollY > 32);
+    }
+
     window.addEventListener("scroll", handleScroll, {
       passive: true,
     });
 
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-    };
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   useEffect(() => {
@@ -38,9 +62,9 @@ export default function SiteHeader() {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    const handleKeyDown = (event) => {
+    function handleKeyDown(event) {
       if (event.key === "Escape") setMenuOpen(false);
-    };
+    }
 
     window.addEventListener("keydown", handleKeyDown);
 
@@ -50,7 +74,23 @@ export default function SiteHeader() {
     };
   }, [menuOpen]);
 
-  const closeMenu = () => setMenuOpen(false);
+  function closeMenu() {
+    setMenuOpen(false);
+  }
+
+  function renderAccountLink() {
+    return (
+      <Link
+        className="studio-account"
+        to={dashboardPath}
+        onClick={closeMenu}
+        aria-label={`${dashboardLabel} — ${displayName}`}
+        title={`${displayName} · ${dashboardLabel}`}
+      >
+        {initials || <UserRound size={20} aria-hidden="true" />}
+      </Link>
+    );
+  }
 
   return (
     <>
@@ -74,19 +114,14 @@ export default function SiteHeader() {
             </span>
           </Link>
 
-          <nav
-            className="studio-nav"
-            aria-label="Main navigation"
-          >
+          <nav className="studio-nav" aria-label="Main navigation">
             {links.map((link) => (
               <NavLink
                 key={link.to}
                 to={link.to}
                 end={link.end}
                 className={({ isActive }) =>
-                  `studio-nav__link ${
-                    isActive ? "active" : ""
-                  }`
+                  `studio-nav__link ${isActive ? "active" : ""}`
                 }
               >
                 {link.label}
@@ -95,27 +130,28 @@ export default function SiteHeader() {
           </nav>
 
           <div className="studio-header-actions">
-            <Link
-              className="studio-auth-login"
-              to="/login"
-            >
-              Login
-            </Link>
+            {!loading && !signedIn && (
+              <>
+                <Link className="studio-auth-login" to="/login">
+                  Login
+                </Link>
 
-            <Link
-              className="studio-auth-register"
-              to="/register"
-            >
-              Register
-            </Link>
+                <Link className="studio-auth-register" to="/register">
+                  Register
+                </Link>
+              </>
+            )}
 
-            <Link
-              className="studio-header-cta"
-              to="/booking"
-            >
+            <Link className="studio-header-cta" to="/booking">
               <span>Book a session</span>
               <ArrowUpRight size={16} aria-hidden="true" />
             </Link>
+
+            {!loading && signedIn && renderAccountLink()}
+          </div>
+
+          <div className="studio-mobile-account">
+            {!loading && signedIn && renderAccountLink()}
           </div>
 
           <button
@@ -129,18 +165,16 @@ export default function SiteHeader() {
             onClick={() => setMenuOpen((open) => !open)}
           >
             {menuOpen ? (
-              <X size={23} />
+              <X size={23} aria-hidden="true" />
             ) : (
-              <Menu size={23} />
+              <Menu size={23} aria-hidden="true" />
             )}
           </button>
         </div>
       </header>
 
       <div
-        className={`studio-mobile-menu ${
-          menuOpen ? "is-open" : ""
-        }`}
+        className={`studio-mobile-menu ${menuOpen ? "is-open" : ""}`}
         id="mobile-studio-navigation"
         aria-hidden={!menuOpen}
         inert={!menuOpen}
@@ -154,9 +188,7 @@ export default function SiteHeader() {
               style={{ "--menu-index": index }}
               onClick={closeMenu}
               className={({ isActive }) =>
-                `studio-mobile-menu__link ${
-                  isActive ? "active" : ""
-                }`
+                `studio-mobile-menu__link ${isActive ? "active" : ""}`
               }
             >
               <span>{link.label}</span>
@@ -164,24 +196,39 @@ export default function SiteHeader() {
             </NavLink>
           ))}
 
-          <div className="studio-mobile-auth">
-            <Link
-              className="studio-mobile-auth__login"
-              to="/login"
-              onClick={closeMenu}
-            >
-              Login to your account
-            </Link>
+          {!loading && (
+            <div className="studio-mobile-auth">
+              {signedIn ? (
+                <Link
+                  className="studio-mobile-auth__register"
+                  to={dashboardPath}
+                  onClick={closeMenu}
+                >
+                  {dashboardLabel}
+                  <ArrowUpRight size={18} aria-hidden="true" />
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    className="studio-mobile-auth__login"
+                    to="/login"
+                    onClick={closeMenu}
+                  >
+                    Login to your account
+                  </Link>
 
-            <Link
-              className="studio-mobile-auth__register"
-              to="/register"
-              onClick={closeMenu}
-            >
-              Create an account
-              <ArrowUpRight size={18} aria-hidden="true" />
-            </Link>
-          </div>
+                  <Link
+                    className="studio-mobile-auth__register"
+                    to="/register"
+                    onClick={closeMenu}
+                  >
+                    Create an account
+                    <ArrowUpRight size={18} aria-hidden="true" />
+                  </Link>
+                </>
+              )}
+            </div>
+          )}
 
           <Link
             className="studio-mobile-menu__cta"

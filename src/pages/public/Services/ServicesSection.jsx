@@ -1,55 +1,60 @@
-
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
+import { getPublicServices } from "../../../services/publicServicesService";
 
 gsap.registerPlugin(ScrollTrigger);
-
-const experiences = [
-  {
-    number: "01",
-    title: "Newborn",
-    subtitle: "THE FIRST LITTLE DAYS",
-    description:
-      "Preserve those delicate first days with gentle, baby-led photography and timeless portraits.",
-    image:
-      "https://images.unsplash.com/photo-1519689680058-324335c77eba?auto=format&fit=crop&w=1000&q=85",
-    alt: "Soft, delicate detail for a newborn photography session",
-  },
-  {
-    number: "02",
-    title: "Maternity",
-    subtitle: "BEFORE YOUR WORLD CHANGES",
-    description:
-      "Celebrate the anticipation, connection and quiet beauty of the journey into parenthood.",
-    image:
-      "https://images.unsplash.com/photo-1511895426328-dc8714191300?auto=format&fit=crop&w=1000&q=85",
-    alt: "Family connection captured in a natural, warm setting",
-  },
-  {
-    number: "03",
-    title: "Baby & Milestones",
-    subtitle: "EVERY LITTLE FIRST",
-    description:
-      "From curious expressions to first birthdays, remember the personality in every new chapter.",
-    image:
-      "https://images.unsplash.com/photo-1503919005314-30d93d07d823?auto=format&fit=crop&w=1000&q=85",
-    alt: "A tender family moment worth remembering",
-  },
-];
 
 export default function ServicesSection() {
   const sectionRef = useRef(null);
 
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+
+ useEffect(() => {
+  const controller = new AbortController();
+
+  async function loadServices() {
+    try {
+      const data = await getPublicServices({
+        signal: controller.signal,
+      });
+
+      if (!controller.signal.aborted) {
+        setServices(data);
+        setLoading(false);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load services. Please try again.",
+        );
+        setLoading(false);
+      }
+    }
+  }
+
+  loadServices();
+
+  return () => controller.abort();
+}, [retry]);
+
   useEffect(() => {
     const section = sectionRef.current;
-    if (!section) return undefined;
+
+    if (!section || loading || error || services.length === 0) {
+      return undefined;
+    }
 
     const reduceMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
+      "(prefers-reduced-motion: reduce)",
     ).matches;
 
     if (reduceMotion) return undefined;
@@ -83,13 +88,18 @@ export default function ServicesSection() {
     }, section);
 
     return () => ctx.revert();
-  }, []);
-
+  }, [loading, error, services]);
+function handleRetry() {
+  setLoading(true);
+  setError("");
+  setRetry((value) => value + 1);
+}
   return (
     <section
       className="experiences-section"
       ref={sectionRef}
       aria-labelledby="experiences-title"
+      aria-busy={loading}
     >
       <div className="experiences-section__inner">
         <header className="experiences-section__heading">
@@ -109,57 +119,78 @@ export default function ServicesSection() {
           </div>
         </header>
 
-        <div className="experiences-section__grid">
-          {experiences.map((experience) => (
-            <article
-              className="experience-card"
-              key={experience.number}
+        {loading && <p role="status">Loading services…</p>}
+
+        {!loading && error && (
+          <div role="alert">
+            <p>{error}</p>
+            <button
+              type="button"
+              className="experience-card__link"
+              onClick={handleRetry}
             >
-              <Link
-                className="experience-card__image-link"
-                to="/booking"
-                aria-label={`Enquire about ${experience.title} photography`}
-              >
-                <div className="experience-card__image">
-                  <img
-                    src={experience.image}
-                    alt={experience.alt}
-                    loading="lazy"
-                    decoding="async"
-                  />
+              Try again
+              <ArrowUpRight size={15} aria-hidden="true" />
+            </button>
+          </div>
+        )}
 
-                  <span className="experience-card__number">
-                    {experience.number}
-                  </span>
+        {!loading && !error && services.length === 0 && (
+          <p>No photography services are currently available.</p>
+        )}
 
-                  <span className="experience-card__arrow">
-                    <ArrowUpRight size={20} aria-hidden="true" />
-                  </span>
-                </div>
-              </Link>
-
-              <div className="experience-card__body">
-                <p className="experience-card__subtitle">
-                  {experience.subtitle}
-                </p>
-
-                <h3>{experience.title}</h3>
-
-                <p className="experience-card__description">
-                  {experience.description}
-                </p>
-
+        {!loading && !error && services.length > 0 && (
+          <div className="experiences-section__grid">
+            {services.map((service, index) => (
+              <article className="experience-card" key={service.id}>
                 <Link
-                  className="experience-card__link"
+                  className="experience-card__image-link"
                   to="/booking"
+                  aria-label={`Enquire about ${service.name}`}
                 >
-                  Plan your session
-                  <ArrowUpRight size={15} aria-hidden="true" />
+                  <div className="experience-card__image">
+                    {service.image && (
+                      <img
+                        src={service.image}
+                        alt={service.name}
+                        loading="lazy"
+                        decoding="async"
+                        onLoad={() => ScrollTrigger.refresh()}
+                      />
+                    )}
+
+                    <span className="experience-card__number">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+
+                    <span className="experience-card__arrow">
+                      <ArrowUpRight size={20} aria-hidden="true" />
+                    </span>
+                  </div>
                 </Link>
-              </div>
-            </article>
-          ))}
-        </div>
+
+                <div className="experience-card__body">
+                  {service.category && (
+                    <p className="experience-card__subtitle">
+                      {service.category}
+                    </p>
+                  )}
+
+                  <h3>{service.name}</h3>
+
+                  <p className="experience-card__description">
+                    {service.description}
+                  </p>
+
+                  <Link className="experience-card__link" to="/booking">
+                    Plan your session
+                    <ArrowUpRight size={15} aria-hidden="true" />
+                  </Link>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

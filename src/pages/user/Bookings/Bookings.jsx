@@ -1,118 +1,151 @@
-
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
   CalendarDays,
-  Check,
   ChevronDown,
   Clock3,
-  MapPin,
-  Search,
   Sparkles,
 } from "lucide-react";
 
-// UI preview records only. Replace these with authenticated API data later.
-const previewBookings = [
-  {
-    id: "LCS-1024",
-    title: "Newborn Photography",
-    type: "Newborn",
-    date: "2026-11-14",
-    time: "10:30 AM",
-    location: "Little Click Studio · South Bopal",
-    status: "Confirmed",
-    description:
-      "A gentle studio session to capture your baby's earliest little moments.",
-  },
-  {
-    id: "LCS-1025",
-    title: "Maternity Portraits",
-    type: "Maternity",
-    date: "2026-11-22",
-    time: "04:00 PM",
-    location: "Little Click Studio · South Bopal",
-    status: "Pending",
-    description:
-      "An elegant maternity portrait session with soft, natural studio lighting.",
-  },
-  {
-    id: "LCS-1018",
-    title: "Baby Milestone Session",
-    type: "Baby",
-    date: "2026-08-12",
-    time: "11:00 AM",
-    location: "Little Click Studio · South Bopal",
-    status: "Completed",
-    description:
-      "A milestone session celebrating your baby's growing personality.",
-  },
-];
+import { useAuth } from "../../../context/AuthContext";
 
-const filters = ["All sessions", "Upcoming", "Completed", "Cancelled"];
+const STATUS_LABELS = {
+  pending: "Pending",
+  confirmed: "Confirmed",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
 
-function getFilterStatus(booking) {
-  if (booking.status === "Cancelled") return "Cancelled";
-  if (booking.status === "Completed") return "Completed";
-  return new Date(`${booking.date}T23:59:59`) >= new Date()
-    ? "Upcoming"
-    : "Completed";
+const FILTERS = ["all", "pending", "confirmed", "completed", "cancelled"];
+
+function formatDate(value) {
+  return new Date(`${value}T12:00:00+05:30`).toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
-// function formatDate(date) {
-//   return new Date(`${date}T12:00:00`).toLocaleDateString("en-IN", {
-//     day: "2-digit",
-//     month: "short",
-//     year: "numeric",
-//   });
-// }
+function canCancel(booking) {
+  return (
+    booking.status === "pending" &&
+    new Date(`${booking.preferred_date}T${booking.preferred_time}+05:30`) >
+      new Date()
+  );
+}
 
 export default function Bookings() {
-  const [activeFilter, setActiveFilter] = useState("All sessions");
-  const [search, setSearch] = useState("");
-  const [expandedBooking, setExpandedBooking] = useState(null);
+  const { apiRequest } = useAuth();
 
-  const bookings = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  const [result, setResult] = useState({
+    count: 0,
+    results: [],
+    next: null,
+    previous: null,
+  });
+  const [page, setPage] = useState(1);
+  const [reload, setReload] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [expanded, setExpanded] = useState(null);
+  const [confirmCancel, setConfirmCancel] = useState(null);
+  const [cancelling, setCancelling] = useState(null);
 
-    return previewBookings.filter((booking) => {
-      const matchesFilter =
-        activeFilter === "All sessions" ||
-        getFilterStatus(booking) === activeFilter;
+  useEffect(() => {
+    let active = true;
 
-      const matchesSearch =
-        !query ||
-        `${booking.title} ${booking.type} ${booking.id} ${booking.status}`
-          .toLowerCase()
-          .includes(query);
+    apiRequest(`bookings/?page=${page}`)
+      .then((data) => {
+        if (!Array.isArray(data.results)) {
+          throw new Error("Invalid bookings response.");
+        }
 
-      return matchesFilter && matchesSearch;
-    });
-  }, [activeFilter, search]);
+        if (active) setResult(data);
+      })
+      .catch((err) => {
+        if (active) {
+          setError(
+            err instanceof Error ? err.message : "Unable to load bookings.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
-  const upcomingCount = previewBookings.filter(
-    (booking) => getFilterStatus(booking) === "Upcoming"
-  ).length;
+    return () => {
+      active = false;
+    };
+  }, [apiRequest, page, reload]);
 
-  const completedCount = previewBookings.filter(
-    (booking) => getFilterStatus(booking) === "Completed"
-  ).length;
+  function loadPage(nextPage) {
+    setLoading(true);
+    setError("");
+    setExpanded(null);
+    setConfirmCancel(null);
+    setPage(nextPage);
+  }
+
+  function retry() {
+    setLoading(true);
+    setError("");
+    setReload((value) => value + 1);
+  }
+
+  async function cancelBooking(id) {
+    if (cancelling) return;
+
+    setCancelling(id);
+    setNotice("");
+
+    try {
+      const data = await apiRequest(`bookings/${id}/cancel/`, {
+        method: "POST",
+      });
+
+      if (!data.booking || data.booking.id !== id) {
+        throw new Error("Unable to confirm cancellation. Please reload.");
+      }
+
+      setResult((current) => ({
+        ...current,
+        results: current.results.map((booking) =>
+          booking.id === id ? data.booking : booking,
+        ),
+      }));
+
+      setConfirmCancel(null);
+      setNotice(data.message);
+    } catch (err) {
+      setNotice(
+        err instanceof Error ? err.message : "Unable to cancel booking.",
+      );
+    } finally {
+      setCancelling(null);
+    }
+  }
+
+  const bookings = result.results.filter(
+    (booking) => filter === "all" || booking.status === filter,
+  );
 
   return (
     <div className="customer-bookings">
       <header className="customer-bookings__intro">
         <div>
           <span className="customer-bookings__eyebrow">
-            <Sparkles size={14} />
+            <Sparkles size={14} aria-hidden="true" />
             YOUR STUDIO JOURNEY
           </span>
+
           <h1>
             Moments in <em>the making.</em>
           </h1>
-          <p>
-            Every session is a new memory waiting to happen. Find your
-            bookings, check your session details and plan what comes next.
-          </p>
+          <p>View your booking requests, session details and current status.</p>
         </div>
 
         <Link to="/booking" className="customer-bookings__primary-button">
@@ -120,191 +153,261 @@ export default function Bookings() {
         </Link>
       </header>
 
-      <section className="customer-bookings__summary" aria-label="Booking summary">
-        <article>
-          <span className="customer-bookings__summary-icon">
-            <CalendarDays size={19} />
-          </span>
-          <div>
-            <span>Upcoming sessions</span>
-            <strong>{upcomingCount}</strong>
-          </div>
-        </article>
-
-        <article>
-          <span className="customer-bookings__summary-icon">
-            <Clock3 size={19} />
-          </span>
-          <div>
-            <span>Completed sessions</span>
-            <strong>{completedCount}</strong>
-          </div>
-        </article>
-
-        <article className="customer-bookings__summary-note">
-          <span className="customer-bookings__summary-icon">
-            <Check size={19} />
-          </span>
-          <div>
-            <span>Every moment matters</span>
-            <strong className="customer-bookings__summary-message">
-              Beautifully remembered.
-            </strong>
-          </div>
-        </article>
-      </section>
-
-      <section className="customer-bookings__content">
+      <section className="customer-bookings__content" aria-busy={loading}>
         <div className="customer-bookings__section-heading">
           <div>
-            <span className="customer-bookings__eyebrow">YOUR RESERVATIONS</span>
+            <span className="customer-bookings__eyebrow">
+              YOUR RESERVATIONS
+            </span>
             <h2>My sessions</h2>
           </div>
-          <span className="customer-bookings__result-count">
-            {bookings.length} {bookings.length === 1 ? "session" : "sessions"}
-          </span>
+
+          {!loading && !error && (
+            <span className="customer-bookings__result-count">
+              {result.count} total bookings
+            </span>
+          )}
         </div>
 
-        <div className="customer-bookings__toolbar">
-          <div className="customer-bookings__filters" role="group" aria-label="Filter bookings">
-            {filters.map((filter) => (
-              <button
-                key={filter}
-                type="button"
-                className={
-                  activeFilter === filter
-                    ? "customer-bookings__filter is-active"
-                    : "customer-bookings__filter"
-                }
-                aria-pressed={activeFilter === filter}
-                onClick={() => setActiveFilter(filter)}
-              >
-                {filter}
-              </button>
-            ))}
-          </div>
+        {notice && <p role="status">{notice}</p>}
 
-          <label className="customer-bookings__search">
-            <Search size={17} />
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search sessions..."
-              aria-label="Search bookings"
-            />
-          </label>
-        </div>
-
-        {bookings.length > 0 ? (
-          <div className="customer-bookings__list">
-            {bookings.map((booking, index) => {
-              const expanded = expandedBooking === booking.id;
-              const statusClass = booking.status.toLowerCase();
-
-              return (
-                <article
-                  className="customer-bookings__card"
-                  key={booking.id}
-                  style={{ "--booking-index": index }}
-                >
-                  <div className="customer-bookings__date-tile">
-                    <span>{new Date(`${booking.date}T12:00:00`).toLocaleDateString("en-IN", { month: "short" })}</span>
-                    <strong>{new Date(`${booking.date}T12:00:00`).getDate()}</strong>
-                    <span>{new Date(`${booking.date}T12:00:00`).toLocaleDateString("en-IN", { weekday: "short" })}</span>
-                  </div>
-
-                  <div className="customer-bookings__details">
-                    <div className="customer-bookings__card-topline">
-                      <span className="customer-bookings__type">{booking.type} SESSION</span>
-                      <span className={`customer-bookings__status customer-bookings__status--${statusClass}`}>
-                        <span />
-                        {booking.status}
-                      </span>
-                    </div>
-
-                    <h3>{booking.title}</h3>
-
-                    <div className="customer-bookings__meta">
-                      <span><Clock3 size={14} /> {booking.time}</span>
-                      <span><MapPin size={14} /> {booking.location}</span>
-                    </div>
-
-                    {expanded && (
-                      <div className="customer-bookings__expanded">
-                        <p>{booking.description}</p>
-                        <span>Booking reference: {booking.id}</span>
-                      </div>
-                    )}
-
-                    <button
-                      className="customer-bookings__details-button"
-                      type="button"
-                      aria-expanded={expanded}
-                      onClick={() =>
-                        setExpandedBooking(expanded ? null : booking.id)
-                      }
-                    >
-                      {expanded ? "Hide details" : "View details"}
-                      <ChevronDown
-                        size={15}
-                        className={expanded ? "is-rotated" : ""}
-                      />
-                    </button>
-                  </div>
-
-                  <div className="customer-bookings__card-action">
-                    <span>REFERENCE</span>
-                    <strong>{booking.id}</strong>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpandedBooking(expanded ? null : booking.id)
-                      }
-                      aria-label={`${expanded ? "Hide" : "Show"} details for ${booking.title}`}
-                    >
-                      <ArrowRight size={18} />
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        ) : (
+        {loading ? (
+          <p role="status">Loading your bookings…</p>
+        ) : error ? (
           <div className="customer-bookings__empty">
-            <span><CalendarDays size={25} /></span>
-            <h3>No sessions found</h3>
-            <p>
-              Try another filter or search, or plan a new photography session.
-            </p>
+            <p role="alert">{error}</p>
             <button
               type="button"
-              onClick={() => {
-                setActiveFilter("All sessions");
-                setSearch("");
-              }}
+              className="customer-bookings__button customer-bookings__button--secondary"
+              onClick={retry}
             >
-              Clear filters
+              Retry
             </button>
-            <Link to="/booking">Explore a new session ↗</Link>
           </div>
+        ) : (
+          <>
+            <div className="customer-bookings__toolbar">
+              <div
+                className="customer-bookings__filters"
+                role="group"
+                aria-label="Filter bookings on this page"
+              >
+                {FILTERS.map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    className={`customer-bookings__filter ${
+                      filter === status ? "is-active" : ""
+                    }`}
+                    aria-pressed={filter === status}
+                    onClick={() => setFilter(status)}
+                  >
+                    {status === "all" ? "All statuses" : STATUS_LABELS[status]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <p>Filters apply to this page of bookings.</p>
+
+            {bookings.length === 0 ? (
+              <div className="customer-bookings__empty">
+                <CalendarDays size={25} aria-hidden="true" />
+                <h3>
+                  {result.count === 0
+                    ? "You have no bookings yet."
+                    : "No matching bookings on this page."}
+                </h3>
+                <Link to="/booking">Plan a session ↗</Link>
+              </div>
+            ) : (
+              <div className="customer-bookings__list">
+                {bookings.map((booking, index) => {
+                  const isExpanded = expanded === booking.id;
+                  const isCancelling = cancelling === booking.id;
+                  const detailsId = `booking-${booking.id}`;
+
+                  return (
+                    <article
+                      className="customer-bookings__card"
+                      key={booking.id}
+                      style={{ "--booking-index": index }}
+                    >
+                      <div className="customer-bookings__date-tile">
+                        <CalendarDays size={22} aria-hidden="true" />
+                        <span>{formatDate(booking.preferred_date)}</span>
+                      </div>
+
+                      <div className="customer-bookings__details">
+                        <div className="customer-bookings__card-topline">
+                          <span className="customer-bookings__type">
+                            PHOTOGRAPHY SESSION
+                          </span>
+                          <span
+                            className={`customer-bookings__status customer-bookings__status--${booking.status}`}
+                          >
+                            <span />
+                            {STATUS_LABELS[booking.status] || booking.status}
+                          </span>
+                        </div>
+
+                        <h3>{booking.service_name}</h3>
+
+                        <div className="customer-bookings__meta">
+                          <span>
+                            <Clock3 size={14} aria-hidden="true" />
+                            {booking.preferred_time.slice(0, 5)} IST
+                          </span>
+                          <span>{booking.duration_minutes} minutes</span>
+                        </div>
+
+                        {booking.status === "pending" && (
+                          <p>
+                            Requested timing — awaiting studio confirmation.
+                          </p>
+                        )}
+
+                        <button
+                          className="customer-bookings__details-button"
+                          type="button"
+                          aria-expanded={isExpanded}
+                          aria-controls={detailsId}
+                          onClick={() =>
+                            setExpanded(isExpanded ? null : booking.id)
+                          }
+                        >
+                          {isExpanded ? "Hide details" : "View details"}
+                          <ChevronDown
+                            size={15}
+                            className={isExpanded ? "is-rotated" : ""}
+                          />
+                        </button>
+
+                        {isExpanded && (
+                          <div
+                            id={detailsId}
+                            className="customer-bookings__expanded"
+                          >
+                            <dl className="account-details">
+                              <div>
+                                <dt>Reference</dt>
+                                <dd>{booking.id}</dd>
+                              </div>
+                              <div>
+                                <dt>Quoted price</dt>
+                                <dd>
+                                  {new Intl.NumberFormat("en-IN", {
+                                    style: "currency",
+                                    currency: "INR",
+                                  }).format(Number(booking.quoted_price))}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Contact name</dt>
+                                <dd>{booking.contact_name}</dd>
+                              </div>
+                              <div>
+                                <dt>Email</dt>
+                                <dd>{booking.contact_email}</dd>
+                              </div>
+                              <div>
+                                <dt>Phone</dt>
+                                <dd>{booking.contact_phone}</dd>
+                              </div>
+                              <div>
+                                <dt>Notes</dt>
+                                <dd>{booking.notes || "None provided"}</dd>
+                              </div>
+                            </dl>
+
+                            {canCancel(booking) &&
+                              (confirmCancel === booking.id ? (
+                                <div className="customer-bookings__cancel-confirm">
+                                  <p>Cancel this booking request?</p>
+
+                                  <div className="customer-bookings__action-buttons">
+                                    <button
+                                      type="button"
+                                      className="customer-bookings__button customer-bookings__button--danger"
+                                      disabled={Boolean(cancelling)}
+                                      onClick={() => cancelBooking(booking.id)}
+                                    >
+                                      {isCancelling
+                                        ? "Cancelling…"
+                                        : "Yes, cancel"}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      className="customer-bookings__button customer-bookings__button--secondary"
+                                      disabled={Boolean(cancelling)}
+                                      onClick={() => setConfirmCancel(null)}
+                                    >
+                                      Keep booking
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="customer-bookings__button customer-bookings__button--danger-outline"
+                                  disabled={Boolean(cancelling)}
+                                  onClick={() => setConfirmCancel(booking.id)}
+                                >
+                                  Cancel request
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+
+            <nav
+              className="customer-bookings__pagination"
+              aria-label="Booking pages"
+            >
+              <button
+                type="button"
+                className="customer-bookings__button customer-bookings__button--secondary"
+                disabled={!result.previous || Boolean(cancelling)}
+                onClick={() => loadPage(page - 1)}
+              >
+                Previous
+              </button>
+
+              <span
+                className="customer-bookings__page-number"
+                aria-current="page"
+              >
+                Page {page}
+              </span>
+
+              <button
+                type="button"
+                className="customer-bookings__button customer-bookings__button--secondary"
+                disabled={!result.next || Boolean(cancelling)}
+                onClick={() => loadPage(page + 1)}
+              >
+                Next
+              </button>
+            </nav>
+          </>
         )}
       </section>
 
       <aside className="customer-bookings__help">
         <div>
-          <span className="customer-bookings__eyebrow">NEED A LITTLE HELP?</span>
-          <h2>We're here for your story.</h2>
-          <p>Have a question about a session? Get in touch with the studio.</p>
+          <h2>Need help with your session?</h2>
+          <p>Contact the studio about confirmed bookings or timing changes.</p>
         </div>
-        <Link to="/contact">Contact the studio <ArrowRight size={15} /></Link>
+        <Link to="/contact">
+          Contact the studio <ArrowRight size={15} />
+        </Link>
       </aside>
-
-      <p className="customer-bookings__disclaimer">
-        Preview mode: the displayed sessions are sample UI data, not actual
-        reservations. Your authenticated booking records will be loaded from
-        the backend when the API is connected.
-      </p>
     </div>
   );
 }

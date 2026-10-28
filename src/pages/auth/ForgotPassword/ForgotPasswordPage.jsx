@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import "./ForgotPasswordPage.scss";
 
-const RESET_API = "/api/auth/password-reset/";
+const RESET_API = "http://127.0.0.1:8000/api/v1/auth/password-reset/";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -34,7 +34,6 @@ export default function ForgotPasswordPage() {
     try {
       const response = await fetch(RESET_API, {
         method: "POST",
-        credentials: "include",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",

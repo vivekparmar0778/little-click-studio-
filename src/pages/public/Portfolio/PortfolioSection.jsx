@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -10,171 +9,275 @@ import {
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
+import { getPublicPortfolio } from "../../../services/publicPortfolioService";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const portfolioItems = [
-  {
-    id: 1,
-    title: "The First Days",
-    category: "NEWBORN",
-    image:
-      "https://images.unsplash.com/photo-1519689680058-324335c77eba?auto=format&fit=crop&w=1400&q=85",
-    alt: "Soft, intimate newborn-inspired portrait",
-    layout: "portrait",
-  },
-  {
-    id: 2,
-    title: "A Mother’s Glow",
-    category: "MATERNITY",
-    image:
-      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1400&q=85",
-    alt: "Warm editorial portrait with soft natural light",
-    layout: "landscape",
-  },
-  {
-    id: 3,
-    title: "Little Wonders",
-    category: "BABY",
-    image:
-      "https://images.unsplash.com/photo-1503919005314-30d93d07d823?auto=format&fit=crop&w=1400&q=85",
-    alt: "Tender family moment in a natural setting",
-    layout: "portrait",
-  },
-  {
-    id: 4,
-    title: "Together, Always",
-    category: "FAMILY",
-    image:
-      "https://images.unsplash.com/photo-1511895426328-dc8714191300?auto=format&fit=crop&w=1400&q=85",
-    alt: "Family sharing a quiet moment together",
-    layout: "landscape",
-  },
-  {
-    id: 5,
-    title: "A Beautiful Beginning",
-    category: "MATERNITY",
-    image:
-      "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=1400&q=85",
-    alt: "Elegant portrait in a warm neutral palette",
-    layout: "portrait",
-  },
-  {
-    id: 6,
-    title: "Made of Memories",
-    category: "MILESTONES",
-    image:
-      "https://images.unsplash.com/photo-1476703993599-0035a21b17a9?auto=format&fit=crop&w=1400&q=85",
-    alt: "A joyful outdoor moment captured naturally",
-    layout: "landscape",
-  },
-];
-
 export default function PortfolioSection() {
   const sectionRef = useRef(null);
+  const dialogRef = useRef(null);
+  const triggerRef = useRef(null);
+  const loadMoreBusyRef = useRef(false);
+  const loadMoreControllerRef = useRef(null);
+
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
   const [activeIndex, setActiveIndex] = useState(null);
+  const [nextPage, setNextPage] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState("");
 
   const activeItem =
-    activeIndex === null ? null : portfolioItems[activeIndex];
+    activeIndex === null ? null : items[activeIndex];
+
+  const isOpen = Boolean(activeItem);
 
   useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadPortfolio() {
+      try {
+        const data = await getPublicPortfolio({
+          page: 1,
+          signal: controller.signal,
+        });
+
+        if (!controller.signal.aborted) {
+          setItems(data.results);
+          setNextPage(data.next ? 2 : null);
+          setLoading(false);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load portfolio. Please try again.",
+          );
+          setLoading(false);
+        }
+      }
+    }
+
+    loadPortfolio();
+
+    return () => {
+      controller.abort();
+      loadMoreControllerRef.current?.abort();
+    };
+  }, [retry]);
+
+  // Animate the heading once the initial request succeeds.
+  useEffect(() => {
     const section = sectionRef.current;
-    if (!section) return;
+
+    if (!section || loading || error) return undefined;
 
     const reduceMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
+      "(prefers-reduced-motion: reduce)",
     ).matches;
 
-    if (reduceMotion) return;
+    if (reduceMotion) return undefined;
 
     const ctx = gsap.context(() => {
-      gsap.fromTo(
-        ".portfolio-heading > *",
-        { y: 28, opacity: 0 },
-        {
-          y: 0,
-          opacity: 1,
-          duration: 0.8,
-          stagger: 0.12,
-          ease: "power3.out",
-          scrollTrigger: {
-            trigger: ".portfolio-heading",
-            start: "top 85%",
-            once: true,
-          },
-        }
-      );
-
-      gsap.fromTo(
-        ".portfolio-card",
-        { y: 38, opacity: 0 },
-        {
-          y: 0,
-          opacity: 1,
-          duration: 0.8,
-          stagger: 0.12,
-          ease: "power3.out",
-          scrollTrigger: {
-            trigger: ".portfolio-grid",
-            start: "top 82%",
-            once: true,
-          },
-        }
-      );
+      gsap.from(".portfolio-heading > *", {
+        y: 28,
+        autoAlpha: 0,
+        duration: 0.8,
+        stagger: 0.12,
+        ease: "power3.out",
+        scrollTrigger: {
+          trigger: ".portfolio-heading",
+          start: "top 85%",
+          once: true,
+        },
+      });
     }, section);
 
     return () => ctx.revert();
-  }, []);
+  }, [loading, error]);
+
+  // Animate each card separately, including newly loaded cards.
+  useEffect(() => {
+    const section = sectionRef.current;
+
+    if (!section || loading || error || items.length === 0) {
+      return undefined;
+    }
+
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    if (reduceMotion) return undefined;
+
+    const ctx = gsap.context(() => {
+      gsap.utils.toArray(".portfolio-card").forEach((card) => {
+        gsap.from(card, {
+          y: 38,
+          autoAlpha: 0,
+          duration: 0.8,
+          ease: "power3.out",
+          scrollTrigger: {
+            trigger: card,
+            start: "top 92%",
+            once: true,
+          },
+        });
+      });
+
+      ScrollTrigger.refresh();
+    }, section);
+
+    return () => ctx.revert();
+  }, [loading, error, items]);
 
   useEffect(() => {
-    if (activeIndex === null) return;
+    if (!isOpen) return undefined;
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    dialogRef.current?.focus();
 
-    const handleKeyDown = (event) => {
+    function handleKeyDown(event) {
       if (event.key === "Escape") {
+        event.preventDefault();
         setActiveIndex(null);
-      } else if (event.key === "ArrowRight") {
-        setActiveIndex((current) =>
-          current === null
-            ? null
-            : (current + 1) % portfolioItems.length
-        );
-      } else if (event.key === "ArrowLeft") {
-        setActiveIndex((current) =>
-          current === null
-            ? null
-            : (current - 1 + portfolioItems.length) %
-              portfolioItems.length
-        );
+        return;
       }
-    };
+
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setActiveIndex((current) =>
+          current === null ? null : (current + 1) % items.length,
+        );
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setActiveIndex((current) =>
+          current === null
+            ? null
+            : (current - 1 + items.length) % items.length,
+        );
+        return;
+      }
+
+      if (event.key === "Tab") {
+        const buttons = dialogRef.current?.querySelectorAll(
+          "button:not([disabled])",
+        );
+
+        if (!buttons?.length) {
+          event.preventDefault();
+          return;
+        }
+
+        const first = buttons[0];
+        const last = buttons[buttons.length - 1];
+        const focused = document.activeElement;
+
+        if (
+          event.shiftKey &&
+          (focused === first || focused === dialogRef.current)
+        ) {
+          event.preventDefault();
+          last.focus();
+        } else if (
+          !event.shiftKey &&
+          (focused === last || focused === dialogRef.current)
+        ) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
 
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
+      triggerRef.current?.focus();
     };
-  }, [activeIndex]);
+  }, [isOpen, items.length]);
 
-  const showPrevious = () => {
+  function handleRetry() {
+    setLoading(true);
+    setError("");
+    setLoadMoreError("");
+    setRetry((value) => value + 1);
+  }
+
+  async function handleLoadMore() {
+    if (!nextPage || loadMoreBusyRef.current) return;
+
+    loadMoreBusyRef.current = true;
+    setLoadingMore(true);
+    setLoadMoreError("");
+
+    const controller = new AbortController();
+    loadMoreControllerRef.current = controller;
+
+    try {
+      const data = await getPublicPortfolio({
+        page: nextPage,
+        signal: controller.signal,
+      });
+
+      if (controller.signal.aborted) return;
+
+      setItems((current) => {
+        const ids = new Set(current.map((item) => item.id));
+
+        const additions = data.results.filter((item) => {
+          if (ids.has(item.id)) return false;
+          ids.add(item.id);
+          return true;
+        });
+
+        return [...current, ...additions];
+      });
+
+      setNextPage(data.next ? nextPage + 1 : null);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setLoadMoreError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load more photos.",
+        );
+      }
+    } finally {
+      loadMoreBusyRef.current = false;
+
+      if (!controller.signal.aborted) {
+        setLoadingMore(false);
+      }
+    }
+  }
+
+  function openPhoto(index, event) {
+    triggerRef.current = event.currentTarget;
+    setActiveIndex(index);
+  }
+
+  function showPrevious() {
     setActiveIndex((current) =>
       current === null
         ? null
-        : (current - 1 + portfolioItems.length) %
-          portfolioItems.length
+        : (current - 1 + items.length) % items.length,
     );
-  };
+  }
 
-  const showNext = () => {
+  function showNext() {
     setActiveIndex((current) =>
-      current === null
-        ? null
-        : (current + 1) % portfolioItems.length
+      current === null ? null : (current + 1) % items.length,
     );
-  };
+  }
 
   return (
     <section
@@ -182,6 +285,7 @@ export default function PortfolioSection() {
       id="portfolio-preview"
       ref={sectionRef}
       aria-labelledby="portfolio-title"
+      aria-busy={loading || loadingMore}
     >
       <div className="portfolio-section__inner">
         <header className="portfolio-heading">
@@ -212,51 +316,92 @@ export default function PortfolioSection() {
           </p>
         </header>
 
-        <div className="portfolio-grid">
-          {portfolioItems.map((item, index) => (
-            <button
-              className={`portfolio-card portfolio-card--${item.layout}`}
-              key={item.id}
-              type="button"
-              onClick={() => setActiveIndex(index)}
-              aria-label={`View ${item.title}, ${item.category}`}
-            >
-              <span className="portfolio-card__image-wrap">
-                <img
-                  src={item.image}
-                  alt={item.alt}
-                  loading="lazy"
-                  decoding="async"
-                />
+        {loading && <p role="status">Loading portfolio…</p>}
 
-                <span className="portfolio-card__open" aria-hidden="true">
-                  <ArrowUpRight size={20} />
-                </span>
-              </span>
-
-              <span className="portfolio-card__meta">
-                <span>
-                  <span className="portfolio-card__category">
-                    {item.category}
-                  </span>
-                  <span className="portfolio-card__title">
-                    {item.title}
-                  </span>
-                </span>
-                <span className="portfolio-card__number">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-              </span>
+        {!loading && error && (
+          <div role="alert">
+            <p>{error}</p>
+            <button type="button" onClick={handleRetry}>
+              Try again
             </button>
-          ))}
-        </div>
+          </div>
+        )}
+
+        {!loading && !error && items.length === 0 && (
+          <p>Our portfolio collection will be available soon.</p>
+        )}
+
+        {!loading && !error && items.length > 0 && (
+          <div className="portfolio-grid">
+            {items.map((item, index) => {
+              const layout =
+                item.width > item.height ? "landscape" : "portrait";
+
+              return (
+                <button
+                  className={`portfolio-card portfolio-card--${layout}`}
+                  key={item.id}
+                  type="button"
+                  onClick={(event) => openPhoto(index, event)}
+                  aria-label={`View ${item.title}`}
+                >
+                  <span className="portfolio-card__image-wrap">
+                    <img
+                      src={item.image}
+                      alt={item.alt_text || item.title}
+                      loading="lazy"
+                      decoding="async"
+                      onLoad={() => ScrollTrigger.refresh()}
+                    />
+
+                    <span
+                      className="portfolio-card__open"
+                      aria-hidden="true"
+                    >
+                      <ArrowUpRight size={20} />
+                    </span>
+                  </span>
+
+                  <span className="portfolio-card__meta">
+                    <span>
+                      <span className="portfolio-card__title">
+                        {item.title}
+                      </span>
+                    </span>
+
+                    <span className="portfolio-card__number">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div className="portfolio-footer">
           <p>YOUR STORY DESERVES TO BE REMEMBERED.</p>
-          <Link to="/portfolio" className="portfolio-footer__link">
-            Explore the collection
-            <ArrowUpRight size={17} />
-          </Link>
+
+          {!loading && !error && nextPage && (
+            <div className="portfolio-load-more">
+              {loadMoreError && (
+                <p role="alert">{loadMoreError}</p>
+              )}
+
+              <button
+                type="button"
+                className="portfolio-cta__button"
+                onClick={handleLoadMore}
+                disabled={loadingMore}
+              >
+                {loadingMore
+                  ? "Loading…"
+                  : loadMoreError
+                    ? "Try again"
+                    : "Load more photographs"}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="portfolio-cta">
@@ -269,7 +414,7 @@ export default function PortfolioSection() {
 
           <Link to="/booking" className="portfolio-cta__button">
             Plan your session
-            <ArrowUpRight size={18} />
+            <ArrowUpRight size={18} aria-hidden="true" />
           </Link>
         </div>
       </div>
@@ -277,9 +422,11 @@ export default function PortfolioSection() {
       {activeItem && (
         <div
           className="portfolio-lightbox"
+          ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-label="Portfolio image viewer"
+          tabIndex={-1}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               setActiveIndex(null);
@@ -287,54 +434,59 @@ export default function PortfolioSection() {
           }}
         >
           <div className="portfolio-lightbox__top">
-            <span>
-              LITTLE CLICK STUDIO
-              <span className="portfolio-lightbox__separator"> / </span>
-              {activeItem.category}
-            </span>
+            <span>LITTLE CLICK STUDIO</span>
 
             <button
               className="portfolio-lightbox__close"
               type="button"
               onClick={() => setActiveIndex(null)}
               aria-label="Close image viewer"
-              autoFocus
             >
-              <X size={23} />
+              <X size={23} aria-hidden="true" />
             </button>
           </div>
 
-          <button
-            className="portfolio-lightbox__nav portfolio-lightbox__nav--prev"
-            type="button"
-            onClick={showPrevious}
-            aria-label="Previous image"
-          >
-            <ArrowLeft size={22} />
-          </button>
+          {items.length > 1 && (
+            <button
+              className="portfolio-lightbox__nav portfolio-lightbox__nav--prev"
+              type="button"
+              onClick={showPrevious}
+              aria-label="Previous image"
+            >
+              <ArrowLeft size={22} aria-hidden="true" />
+            </button>
+          )}
 
           <figure className="portfolio-lightbox__figure">
-            <img src={activeItem.image} alt={activeItem.alt} />
-            <figcaption>
+            <img
+              src={activeItem.image}
+              alt={activeItem.alt_text || activeItem.title}
+            />
+
+            <figcaption aria-live="polite">
               <span>{activeItem.title}</span>
               <span>
                 {String(activeIndex + 1).padStart(2, "0")} /{" "}
-                {String(portfolioItems.length).padStart(2, "0")}
+                {String(items.length).padStart(2, "0")}
               </span>
             </figcaption>
           </figure>
 
-          <button
-            className="portfolio-lightbox__nav portfolio-lightbox__nav--next"
-            type="button"
-            onClick={showNext}
-            aria-label="Next image"
-          >
-            <ArrowRight size={22} />
-          </button>
+          {items.length > 1 && (
+            <button
+              className="portfolio-lightbox__nav portfolio-lightbox__nav--next"
+              type="button"
+              onClick={showNext}
+              aria-label="Next image"
+            >
+              <ArrowRight size={22} aria-hidden="true" />
+            </button>
+          )}
 
           <p className="portfolio-lightbox__hint">
-            USE ← → TO EXPLORE · ESC TO CLOSE
+            {items.length > 1
+              ? "USE ← → TO EXPLORE · ESC TO CLOSE"
+              : "ESC TO CLOSE"}
           </p>
         </div>
       )}

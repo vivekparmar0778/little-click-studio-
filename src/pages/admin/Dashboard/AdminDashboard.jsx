@@ -1,6 +1,5 @@
-
+import { useEffect, useMemo, useState } from "react";
 import {
-  
   ArrowRight,
   ArrowUpRight,
   CalendarDays,
@@ -14,32 +13,35 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
-const summaryCards = [
+import { useAuth } from "../../../context/AuthContext";
+import { createAdminOverviewService } from "../../../services/adminReviewsService";
+
+const summaryCardConfig = [
   {
     label: "Total bookings",
-    value: "—",
-    note: "Booking data not connected",
+    key: "total_bookings",
+    note: "All booking requests",
     icon: CalendarDays,
     to: "/admin/bookings",
   },
   {
     label: "Pending inquiries",
-    value: "—",
-    note: "Inquiry data not connected",
+    key: "pending_inquiries",
+    note: "New and contacted inquiries",
     icon: MessageSquare,
     to: "/admin/inquiries",
   },
   {
     label: "Total customers",
-    value: "—",
-    note: "Customer data not connected",
+    key: "total_customers",
+    note: "Registered non-admin accounts",
     icon: Users,
     to: "/admin/customers",
   },
   {
     label: "Revenue received",
-    value: "—",
-    note: "Payment data not connected",
+    key: "revenue_received",
+    note: "Live payments minus successful refunds",
     icon: IndianRupee,
     to: "/admin/bookings",
   },
@@ -76,11 +78,152 @@ const quickActions = [
   },
 ];
 
-const recentBookings = [];
-const recentActivity = [];
+function formatDate(value) {
+  if (!value) return "—";
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+function formatActivityTime(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+function validateOverview(data) {
+  const summary = data?.summary;
+
+  const countFields = [
+    "total_bookings",
+    "pending_inquiries",
+    "total_customers",
+  ];
+
+  const validCounts = countFields.every(
+    (key) => Number.isInteger(summary?.[key]) && summary[key] >= 0,
+  );
+
+  const revenue = summary?.revenue_received;
+  const validRevenue =
+    (typeof revenue === "string" && revenue.trim() !== "") ||
+    typeof revenue === "number";
+
+  if (
+    !summary ||
+    !validCounts ||
+    !validRevenue ||
+    !Number.isFinite(Number(revenue)) ||
+    summary.currency !== "INR" ||
+    !Array.isArray(data.recent_bookings)
+  ) {
+    throw new Error("Invalid overview response. Please try again.");
+  }
+
+  return data;
+}
 
 export default function AdminDashboard() {
-  const dataConnected = false;
+  const { apiRequest } = useAuth();
+
+  const overviewApi = useMemo(
+    () => createAdminOverviewService(apiRequest),
+    [apiRequest],
+  );
+
+  const [overview, setOverview] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadOverview() {
+      try {
+        const response = await overviewApi.getOverview();
+        const data = validateOverview(response);
+
+        if (active) {
+          setOverview(data);
+          setError("");
+        }
+      } catch (requestError) {
+        if (active) {
+          setOverview(null);
+          setError(requestError?.message || "Unable to load studio overview.");
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadOverview();
+
+    return () => {
+      active = false;
+    };
+  }, [overviewApi, retryCount]);
+
+  function handleRetry() {
+    setLoading(true);
+    setError("");
+    setOverview(null);
+    setRetryCount((count) => count + 1);
+  }
+
+  const dataConnected = overview !== null && !loading && !error;
+  const summary = overview?.summary;
+  const recentBookings = overview?.recent_bookings ?? [];
+  const recentActivity = overview?.recent_activity ?? [];
+
+  const summaryCards = summaryCardConfig.map((card) => {
+    let value = "—";
+
+    if (dataConnected) {
+      value =
+        card.key === "revenue_received"
+          ? new Intl.NumberFormat("en-IN", {
+              style: "currency",
+              currency: summary.currency,
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(Number(summary[card.key]))
+          : new Intl.NumberFormat("en-IN").format(summary[card.key]);
+    }
+
+    return {
+      ...card,
+      value,
+      note: loading ? "Loading..." : error ? "Unable to load data" : card.note,
+    };
+  });
+
+  const connectionText = loading
+    ? "Loading studio data..."
+    : error
+      ? "Data connection failed"
+      : dataConnected
+        ? "Studio data loaded"
+        : "Awaiting data connection";
 
   return (
     <div className="admin-dashboard">
@@ -109,20 +252,35 @@ export default function AdminDashboard() {
           role="status"
         >
           <span className="admin-dashboard__connection-dot" />
-          {dataConnected ? "Live data connected" : "Awaiting data connection"}
+          {connectionText}
         </div>
       </header>
+
+      {error && (
+        <div className="admin-dashboard__panel" role="alert">
+          <p>{error}</p>
+
+          <button
+            type="button"
+            className="admin-dashboard__button"
+            onClick={handleRetry}
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
       <section
         className="admin-dashboard__metrics"
         aria-label="Studio summary"
+        aria-busy={loading}
       >
         {summaryCards.map(({ label, value, note, icon: Icon, to }, index) => (
           <Link
             className="admin-dashboard__metric"
             to={to}
             key={label}
-            aria-label={`${label}. ${note}. Open related page.`}
+            aria-label={`${label}: ${value}. ${note}. Open related page.`}
           >
             <div className="admin-dashboard__metric-top">
               <span className="admin-dashboard__metric-label">{label}</span>
@@ -157,38 +315,58 @@ export default function AdminDashboard() {
         </div>
 
         <div className="admin-dashboard__content-grid">
-          <article className="admin-dashboard__panel admin-dashboard__bookings">
+          <article
+            className="admin-dashboard__panel admin-dashboard__bookings"
+            aria-busy={loading}
+          >
             <div className="admin-dashboard__panel-heading">
               <div>
                 <p className="admin-dashboard__eyebrow">CLIENT SESSIONS</p>
                 <h3>Recent bookings</h3>
               </div>
 
-              <Link
-                className="admin-dashboard__text-link"
-                to="/admin/bookings"
-              >
+              <Link className="admin-dashboard__text-link" to="/admin/bookings">
                 View all <ArrowRight size={15} aria-hidden="true" />
               </Link>
             </div>
 
-            {recentBookings.length === 0 ? (
+            {loading ? (
+              <div className="admin-dashboard__empty" role="status">
+                <span className="admin-dashboard__empty-icon">
+                  <Clock3 size={23} strokeWidth={1.5} aria-hidden="true" />
+                </span>
+
+                <h4>Loading bookings...</h4>
+                <p>Fetching your latest client sessions.</p>
+              </div>
+            ) : error ? (
               <div className="admin-dashboard__empty">
                 <span className="admin-dashboard__empty-icon">
-                  <CalendarDays size={23} strokeWidth={1.5} aria-hidden="true" />
+                  <CalendarDays
+                    size={23}
+                    strokeWidth={1.5}
+                    aria-hidden="true"
+                  />
+                </span>
+
+                <h4>Bookings could not be loaded</h4>
+                <p>Use Try again above to reload studio data.</p>
+              </div>
+            ) : recentBookings.length === 0 ? (
+              <div className="admin-dashboard__empty">
+                <span className="admin-dashboard__empty-icon">
+                  <CalendarDays
+                    size={23}
+                    strokeWidth={1.5}
+                    aria-hidden="true"
+                  />
                 </span>
 
                 <h4>No booking records yet</h4>
 
-                <p>
-                  Once booking data is connected, your latest client sessions
-                  will appear here.
-                </p>
+                <p>Your latest bookings will appear here once created.</p>
 
-                <Link
-                  className="admin-dashboard__button"
-                  to="/admin/bookings"
-                >
+                <Link className="admin-dashboard__button" to="/admin/bookings">
                   Open bookings <ArrowRight size={16} aria-hidden="true" />
                 </Link>
               </div>
@@ -197,10 +375,10 @@ export default function AdminDashboard() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Client</th>
-                      <th>Session</th>
-                      <th>Date</th>
-                      <th>Status</th>
+                      <th scope="col">Client</th>
+                      <th scope="col">Session</th>
+                      <th scope="col">Date</th>
+                      <th scope="col">Status</th>
                     </tr>
                   </thead>
 
@@ -209,10 +387,10 @@ export default function AdminDashboard() {
                       <tr key={booking.id}>
                         <td>{booking.client}</td>
                         <td>{booking.session}</td>
-                        <td>{booking.date}</td>
+                        <td>{formatDate(booking.date)}</td>
                         <td>
                           <span className="admin-dashboard__booking-status">
-                            {booking.status}
+                            {booking.status_label || booking.status}
                           </span>
                         </td>
                       </tr>
@@ -223,7 +401,10 @@ export default function AdminDashboard() {
             )}
           </article>
 
-          <aside className="admin-dashboard__panel admin-dashboard__activity">
+          <aside
+            className="admin-dashboard__panel admin-dashboard__activity"
+            aria-busy={loading}
+          >
             <div className="admin-dashboard__panel-heading">
               <div>
                 <p className="admin-dashboard__eyebrow">STUDIO PULSE</p>
@@ -233,28 +414,40 @@ export default function AdminDashboard() {
               <Clock3 size={19} strokeWidth={1.6} aria-hidden="true" />
             </div>
 
-            {recentActivity.length === 0 ? (
+            {loading ? (
+              <div className="admin-dashboard__activity-empty" role="status">
+                <h4>Loading activity...</h4>
+                <p>Fetching recent bookings and inquiries.</p>
+              </div>
+            ) : error ? (
+              <div className="admin-dashboard__activity-empty">
+                <h4>Activity could not be loaded</h4>
+                <p>Use Try again above to reload studio data.</p>
+              </div>
+            ) : recentActivity.length === 0 ? (
               <div className="admin-dashboard__activity-empty">
                 <span className="admin-dashboard__activity-decoration">
                   <Sparkles size={20} aria-hidden="true" />
                 </span>
 
-                <h4>Your next chapter starts here.</h4>
-
-                <p>
-                  Booking updates, new inquiries and studio changes can appear
-                  here when activity tracking is connected.
-                </p>
+                <h4>No activity yet</h4>
+                <p>New bookings and inquiries will appear here.</p>
               </div>
             ) : (
               <ul className="admin-dashboard__activity-list">
                 {recentActivity.map((activity) => (
                   <li key={activity.id}>
                     <span className="admin-dashboard__activity-marker" />
+
                     <div>
                       <strong>{activity.title}</strong>
                       <p>{activity.description}</p>
-                      <small>{activity.time}</small>
+
+                      <small>
+                        <time dateTime={activity.created_at}>
+                          {formatActivityTime(activity.created_at)}
+                        </time>
+                      </small>
                     </div>
                   </li>
                 ))}
@@ -277,11 +470,7 @@ export default function AdminDashboard() {
         <div className="admin-dashboard__actions">
           {quickActions.map(
             ({ title, description, icon: Icon, to, label }, index) => (
-              <Link
-                className="admin-dashboard__action"
-                to={to}
-                key={title}
-              >
+              <Link className="admin-dashboard__action" to={to} key={title}>
                 <div className="admin-dashboard__action-top">
                   <span className="admin-dashboard__action-icon">
                     <Icon size={21} strokeWidth={1.6} aria-hidden="true" />
@@ -312,9 +501,7 @@ export default function AdminDashboard() {
 
         <div>
           <strong>Little moments. Beautifully managed.</strong>
-          <p>
-            A workspace for the memories that matter.
-          </p>
+          <p>A workspace for the memories that matter.</p>
         </div>
 
         <Link

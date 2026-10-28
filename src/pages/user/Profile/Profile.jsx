@@ -1,178 +1,139 @@
-
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  ArrowLeft,
-  ArrowUpRight,
-  Camera,
-  Check,
-  CheckCircle2,
-  ChevronRight,
-  Heart,
-  Mail,
-  MapPin,
-  Phone,
-  Save,
-  ShieldCheck,
-  Sparkles,
-  UserRound,
-  X,
-} from "lucide-react";
+import { ArrowLeft, Mail, Save, ShieldCheck, UserRound } from "lucide-react";
 
-const initialProfile = {
-  firstName: "Aarohi",
-  lastName: "Shah",
-  email: "aarohi.example@email.com",
-  phone: "+91 98765 43210",
-  city: "Ahmedabad",
-  preferredContact: "Email",
-  photographyInterest: "Newborn photography",
-  notes: "Warm, natural tones and candid family moments.",
-};
+import { useAuth } from "../../../context/AuthContext";
 
-const preferences = [
+const editableFields = [
   {
-    value: "Newborn photography",
-    label: "Newborn",
-    description: "Those first little moments",
+    name: "first_name",
+    label: "First name",
+    autoComplete: "given-name",
+    maxLength: 150,
+    required: true,
   },
   {
-    value: "Maternity photography",
-    label: "Maternity",
-    description: "Celebrate the journey",
+    name: "last_name",
+    label: "Last name",
+    autoComplete: "family-name",
+    maxLength: 150,
   },
   {
-    value: "Baby milestone photography",
-    label: "Baby milestones",
-    description: "Every new little chapter",
+    name: "phone_number",
+    label: "Phone number",
+    type: "tel",
+    autoComplete: "tel",
+    maxLength: 13,
+    placeholder: "+919876543210",
+    help: "Include country code, without spaces. Optional for now.",
   },
   {
-    value: "Family photography",
-    label: "Family",
-    description: "Together, just as you are",
+    name: "city",
+    label: "City",
+    autoComplete: "address-level2",
+    maxLength: 100,
+    placeholder: "Your city",
   },
 ];
 
-function ProfileField({
-  label,
-  name,
-  value,
-  onChange,
-  type = "text",
-  placeholder,
-  icon: Icon,
-  disabled = false,
-}) {
-  return (
-    <label className="customer-profile__field">
-      <span>{label}</span>
-      <div className="customer-profile__input-wrap">
-        {Icon && <Icon size={17} aria-hidden="true" />}
-        <input
-          name={name}
-          type={type}
-          value={value}
-          onChange={onChange}
-          placeholder={placeholder}
-          disabled={disabled}
-          autoComplete={
-            name === "firstName"
-              ? "given-name"
-              : name === "lastName"
-                ? "family-name"
-                : name === "email"
-                  ? "email"
-                  : name === "phone"
-                    ? "tel"
-                    : "off"
-          }
-        />
-      </div>
-    </label>
-  );
-}
-
 export default function Profile() {
-  const [profile, setProfile] = useState(initialProfile);
-  const [draft, setDraft] = useState(initialProfile);
-  const [editing, setEditing] = useState(false);
-  const [message, setMessage] = useState("");
-  const [saving, setSaving] = useState(false);
+  const { user, updateProfile } = useAuth();
 
-  const updateField = (event) => {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState({});
+  const [notice, setNotice] = useState(null);
+
+  const fullName = [user?.first_name, user?.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  const initials = [user?.first_name, user?.last_name]
+    .filter(Boolean)
+    .map((name) => name.trim().charAt(0))
+    .join("")
+    .toUpperCase();
+
+  function startEditing() {
+    setDraft(
+      Object.fromEntries(
+        editableFields.map(({ name }) => [name, user?.[name] || ""]),
+      ),
+    );
+    setNotice(null);
+    setEditing(true);
+  }
+
+  function updateField(event) {
     const { name, value } = event.target;
     setDraft((current) => ({ ...current, [name]: value }));
-    setMessage("");
-  };
+    setNotice(null);
+  }
 
-  const startEditing = () => {
-    setDraft(profile);
-    setMessage("");
-    setEditing(true);
-  };
-
-  const cancelEditing = () => {
-    setDraft(profile);
-    setEditing(false);
-    setMessage("");
-  };
-
-  const saveProfile = (event) => {
+  async function handleSave(event) {
     event.preventDefault();
+    if (saving) return;
 
-    const firstName = draft.firstName.trim();
-    const lastName = draft.lastName.trim();
-    const email = draft.email.trim();
+    const changes = Object.fromEntries(
+      editableFields.map(({ name }) => [name, (draft[name] || "").trim()]),
+    );
 
-    if (!firstName || !lastName || !email) {
-      setMessage("Please fill in your first name, last name and email.");
+    if (!changes.first_name) {
+      setNotice({
+        type: "error",
+        text: "Please enter your first name.",
+      });
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setMessage("Please enter a valid email address.");
+    if (
+      changes.phone_number &&
+      !/^\+[1-9][0-9]{7,14}$/.test(changes.phone_number)
+    ) {
+      setNotice({
+        type: "error",
+        text: "Enter phone number with country code, for example +919876543210.",
+      });
       return;
     }
 
     setSaving(true);
+    setNotice(null);
 
-    const updatedProfile = {
-      ...draft,
-      firstName,
-      lastName,
-      email,
-      phone: draft.phone.trim(),
-      city: draft.city.trim(),
-      notes: draft.notes.trim(),
-    };
+    try {
+      await updateProfile(changes);
 
-    setProfile(updatedProfile);
-    setDraft(updatedProfile);
-    setEditing(false);
-    setSaving(false);
-    setMessage(
-      "Profile updated in this preview. Connect Django to save changes permanently."
-    );
-  };
-
-  const fullName = `${profile.firstName} ${profile.lastName}`.trim();
-  const initials =
-    `${profile.firstName.charAt(0)}${profile.lastName.charAt(0)}`.toUpperCase();
+      setEditing(false);
+      setNotice({
+        type: "success",
+        text: "Your profile has been updated.",
+      });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Unable to update your profile. Please try again.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <main className="customer-profile">
+    <div className="customer-profile">
       <div className="customer-profile__ambient" aria-hidden="true" />
 
       <header className="customer-profile__header">
         <div>
           <Link to="/dashboard" className="customer-profile__back">
-            <ArrowLeft size={15} />
+            <ArrowLeft size={15} aria-hidden="true" />
             Back to overview
           </Link>
 
-          <p className="customer-profile__eyebrow">
-            YOUR SPACE · YOUR DETAILS
-          </p>
+          <p className="customer-profile__eyebrow">YOUR SPACE · YOUR DETAILS</p>
 
           <h1>
             A little about
@@ -181,37 +142,26 @@ export default function Profile() {
           </h1>
 
           <p className="customer-profile__intro">
-            Your details help us make every studio visit feel personal,
-            comfortable and uniquely yours.
+            Keep your personal and contact details up to date.
           </p>
-        </div>
-
-        <div className="customer-profile__header-art" aria-hidden="true">
-          <div className="customer-profile__orbit customer-profile__orbit--outer" />
-          <div className="customer-profile__orbit customer-profile__orbit--inner" />
-          <div className="customer-profile__header-art-center">
-            <Heart size={34} strokeWidth={1.15} />
-          </div>
-          <Sparkles className="customer-profile__sparkle" size={19} />
         </div>
       </header>
 
       <section className="customer-profile__identity">
-        <div className="customer-profile__avatar">
-          <span>{initials || "LC"}</span>
-          <span className="customer-profile__avatar-camera">
-            <Camera size={14} />
-          </span>
+        <div className="customer-profile__avatar" aria-hidden="true">
+          {initials ? <span>{initials}</span> : <UserRound size={28} />}
         </div>
 
         <div className="customer-profile__identity-copy">
           <span className="customer-profile__identity-label">
             YOUR STUDIO ACCOUNT
           </span>
+
           <h2>{fullName || "Your profile"}</h2>
+
           <p>
-            <Mail size={14} />
-            {profile.email}
+            <Mail size={14} aria-hidden="true" />
+            {user?.email}
           </p>
         </div>
 
@@ -222,260 +172,143 @@ export default function Profile() {
             onClick={startEditing}
           >
             Edit profile
-            <ArrowUpRight size={16} />
           </button>
         )}
       </section>
 
-      {message && (
+      {notice && (
         <div
-          className={`customer-profile__notice ${
-            editing
-              ? "customer-profile__notice--error"
-              : "customer-profile__notice--success"
-          }`}
-          role="status"
+          className={`customer-profile__notice customer-profile__notice--${notice.type}`}
+          role={notice.type === "error" ? "alert" : "status"}
         >
-          {editing ? <X size={17} /> : <CheckCircle2 size={17} />}
-          <span>{message}</span>
-          {!editing && (
-            <button
-              type="button"
-              onClick={() => setMessage("")}
-              aria-label="Dismiss message"
-            >
-              <X size={16} />
-            </button>
-          )}
+          {notice.text}
         </div>
       )}
 
-      <div className="customer-profile__grid">
-        <section className="customer-profile__panel customer-profile__details">
-          <div className="customer-profile__panel-heading">
-            <div className="customer-profile__panel-icon">
-              <UserRound size={19} />
-            </div>
-            <div>
-              <p className="customer-profile__eyebrow">THE BASICS</p>
-              <h2>Personal details</h2>
-              <p>How we can address and reach you.</p>
-            </div>
+      <section className="customer-profile__panel customer-profile__details">
+        <div className="customer-profile__panel-heading">
+          <div className="customer-profile__panel-icon">
+            <UserRound size={19} aria-hidden="true" />
           </div>
 
-          <form onSubmit={saveProfile}>
+          <div>
+            <p className="customer-profile__eyebrow">THE BASICS</p>
+            <h2>Personal details</h2>
+          </div>
+        </div>
+
+        {editing ? (
+          <form onSubmit={handleSave} aria-busy={saving}>
             <div className="customer-profile__form-grid">
-              <ProfileField
-                label="First name"
-                name="firstName"
-                value={editing ? draft.firstName : profile.firstName}
-                onChange={updateField}
-                disabled={!editing}
-                placeholder="Your first name"
-              />
+              {editableFields.map(
+                ({
+                  name,
+                  label,
+                  type = "text",
+                  autoComplete,
+                  maxLength,
+                  required,
+                  placeholder,
+                  help,
+                }) => (
+                  <label className="customer-profile__field" key={name}>
+                    <span>
+                      {label}
+                      {required ? " *" : " (optional)"}
+                    </span>
 
-              <ProfileField
-                label="Last name"
-                name="lastName"
-                value={editing ? draft.lastName : profile.lastName}
-                onChange={updateField}
-                disabled={!editing}
-                placeholder="Your last name"
-              />
+                    <div className="customer-profile__input-wrap">
+                      <input
+                        name={name}
+                        type={type}
+                        autoComplete={autoComplete}
+                        value={draft[name] || ""}
+                        onChange={updateField}
+                        maxLength={maxLength}
+                        required={required}
+                        placeholder={placeholder}
+                        disabled={saving}
+                        aria-describedby={
+                          help ? `profile-${name}-help` : undefined
+                        }
+                      />
+                    </div>
 
-              <ProfileField
-                label="Email address"
-                name="email"
-                value={editing ? draft.email : profile.email}
-                onChange={updateField}
-                type="email"
-                icon={Mail}
-                disabled={!editing}
-                placeholder="you@example.com"
-              />
-
-              <ProfileField
-                label="Phone number"
-                name="phone"
-                value={editing ? draft.phone : profile.phone}
-                onChange={updateField}
-                type="tel"
-                icon={Phone}
-                disabled={!editing}
-                placeholder="+91"
-              />
-
-              <ProfileField
-                label="City"
-                name="city"
-                value={editing ? draft.city : profile.city}
-                onChange={updateField}
-                icon={MapPin}
-                disabled={!editing}
-                placeholder="Your city"
-              />
+                    {help && <small id={`profile-${name}-help`}>{help}</small>}
+                  </label>
+                ),
+              )}
 
               <label className="customer-profile__field">
-                <span>Preferred contact</span>
-                <div className="customer-profile__select-wrap">
-                  <select
-                    name="preferredContact"
-                    value={
-                      editing
-                        ? draft.preferredContact
-                        : profile.preferredContact
-                    }
-                    onChange={updateField}
-                    disabled={!editing}
-                  >
-                    <option value="Email">Email</option>
-                    <option value="Phone">Phone</option>
-                    <option value="WhatsApp">WhatsApp</option>
-                  </select>
+                <span>Email address</span>
+
+                <div className="customer-profile__input-wrap">
+                  <input
+                    type="email"
+                    value={user?.email || ""}
+                    readOnly
+                    autoComplete="email"
+                  />
                 </div>
+
+                <small>Email cannot be changed here.</small>
               </label>
             </div>
 
-            <div className="customer-profile__form-divider" />
-
             <div className="customer-profile__form-footer">
-              <p>
-                <ShieldCheck size={15} />
-                Your details should only be accessible to authorized staff.
-              </p>
+              <div className="customer-profile__form-actions">
+                <button
+                  type="button"
+                  className="customer-profile__button"
+                  disabled={saving}
+                  onClick={() => {
+                    setEditing(false);
+                    setDraft({});
+                    setNotice(null);
+                  }}
+                >
+                  Cancel
+                </button>
 
-              {editing && (
-                <div className="customer-profile__form-actions">
-                  <button
-                    type="button"
-                    className="customer-profile__button"
-                    onClick={cancelEditing}
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    type="submit"
-                    className="customer-profile__button customer-profile__button--dark"
-                    disabled={saving}
-                  >
-                    <Save size={15} />
-                    {saving ? "Saving..." : "Save changes"}
-                  </button>
-                </div>
-              )}
+                <button
+                  type="submit"
+                  className="customer-profile__button customer-profile__button--dark"
+                  disabled={saving}
+                >
+                  <Save size={15} aria-hidden="true" />
+                  {saving ? "Saving..." : "Save changes"}
+                </button>
+              </div>
             </div>
           </form>
-        </section>
-
-        <aside className="customer-profile__side">
-          <section className="customer-profile__panel customer-profile__preferences">
-            <div className="customer-profile__panel-heading">
-              <div className="customer-profile__panel-icon">
-                <Camera size={19} />
-              </div>
-              <div>
-                <p className="customer-profile__eyebrow">YOUR STORY</p>
-                <h2>Photography interests</h2>
-                <p>What moments are you planning to capture?</p>
-              </div>
-            </div>
-
-            <div className="customer-profile__interest-list">
-              {preferences.map((item) => {
-                const selected =
-                  (editing ? draft.photographyInterest : profile.photographyInterest) ===
-                  item.value;
-
-                return (
-                  <button
-                    key={item.value}
-                    type="button"
-                    className={`customer-profile__interest ${
-                      selected ? "customer-profile__interest--selected" : ""
-                    }`}
-                    aria-pressed={selected}
-                    disabled={!editing}
-                    onClick={() => {
-                      setDraft((current) => ({
-                        ...current,
-                        photographyInterest: item.value,
-                      }));
-                      setMessage("");
-                    }}
-                  >
-                    <span className="customer-profile__interest-copy">
-                      <strong>{item.label}</strong>
-                      <small>{item.description}</small>
-                    </span>
-                    <span className="customer-profile__interest-check">
-                      {selected && <Check size={14} />}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <p className="customer-profile__preference-note">
-              {editing
-                ? "Choose the type of session you are most interested in."
-                : "To update your interests, select Edit profile above."}
-            </p>
-          </section>
-
-          <section className="customer-profile__panel customer-profile__notes">
-            <p className="customer-profile__eyebrow">THE LITTLE DETAILS</p>
-            <h2>Your preferences</h2>
-            <p>
-              Share the style, atmosphere or small details that would make
-              your session feel like you.
-            </p>
-
-            <label className="customer-profile__field">
-              <span>Session notes</span>
-              <textarea
-                name="notes"
-                rows={4}
-                maxLength={500}
-                value={editing ? draft.notes : profile.notes}
-                onChange={updateField}
-                disabled={!editing}
-                placeholder="Tell us about your preferred style..."
-              />
-            </label>
-
-            {editing && (
-              <span className="customer-profile__character-count">
-                {draft.notes.length}/500 characters
-              </span>
+        ) : (
+          <dl className="account-details">
+            {[...editableFields, { name: "email", label: "Email address" }].map(
+              ({ name, label }) => (
+                <div key={name}>
+                  <dt>{label}</dt>
+                  <dd>{user?.[name]?.trim() || "Not provided"}</dd>
+                </div>
+              ),
             )}
-          </section>
-        </aside>
-      </div>
+          </dl>
+        )}
+      </section>
 
       <section className="customer-profile__privacy">
         <div className="customer-profile__privacy-icon">
-          <ShieldCheck size={22} />
+          <ShieldCheck size={22} aria-hidden="true" />
         </div>
+
         <div>
-          <p className="customer-profile__eyebrow">YOUR PRIVACY MATTERS</p>
-          <h2>Your moments are personal. Your data should be, too.</h2>
-          <p>
-            This page is a frontend preview. Account security, data access,
-            and permanent profile updates must be enforced by the Django
-            backend before launch.
-          </p>
+          <h2>Need help with your account?</h2>
+          <p>Contact the studio for assistance.</p>
         </div>
+
         <Link to="/contact" className="customer-profile__privacy-link">
-          Need help?
-          <ChevronRight size={17} />
+          Contact us
         </Link>
       </section>
-
-      <footer className="customer-profile__footer">
-        <span>Made for the moments that matter.</span>
-        <span>Little Click Studio · South Bopal</span>
-      </footer>
-    </main>
+    </div>
   );
 }

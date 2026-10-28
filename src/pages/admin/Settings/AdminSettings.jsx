@@ -1,5 +1,4 @@
-
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Settings,
   Save,
@@ -9,17 +8,17 @@ import {
   Bell,
   Camera,
   Mail,
-  ShieldCheck,
   CalendarDays,
   Globe,
   ImagePlus,
-  LoaderCircle,
   AlertCircle,
   CheckCircle2,
   ExternalLink,
+  LoaderCircle,
 } from "lucide-react";
 
-const API_URL = "/api/admin/settings/";
+import { useAuth } from "../../../context/AuthContext";
+import { createAdminSettingsService } from "../../../services/adminSettingsService";
 
 const DAYS = [
   "Monday",
@@ -31,7 +30,7 @@ const DAYS = [
   "Sunday",
 ];
 
-const defaultSettings = {
+const DEFAULT_SETTINGS = {
   studioName: "Little Click Studio South Bopal",
   tagline: "One click, one moment, a lifetime of love",
   email: "hello@littleclickstudio.com",
@@ -40,31 +39,20 @@ const defaultSettings = {
   website: "",
   openingTime: "10:00",
   closingTime: "19:00",
-  workingDays: [
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-  ],
-
-  bookingNotifications: true,
-  inquiryNotifications: true,
-  reviewNotifications: false,
-
+  workingDays: DAYS.slice(0, 6),
   bookingsEnabled: true,
   advanceBookingDays: "60",
   minimumNoticeHours: "24",
+  bookingNotifications: true,
+  inquiryNotifications: true,
+  reviewNotifications: false,
   bookingEmail: "",
   inquiryEmail: "",
   notificationEmail: "",
-
   autoReplyEnabled: true,
   emailSubject: "Thank you for contacting Little Click Studio",
   emailMessage:
     "Thank you for reaching out to Little Click Studio. We have received your message and will contact you soon.",
-
   instagram: "",
   facebook: "",
   youtube: "",
@@ -72,99 +60,439 @@ const defaultSettings = {
   profileImageUrl: "",
 };
 
-const clone = (value) => JSON.parse(JSON.stringify(value));
+const PROFILE_FIELDS = [
+  {
+    name: "studioName",
+    label: "Studio name",
+    required: true,
+    maxLength: 150,
+  },
+  { name: "tagline", label: "Tagline", maxLength: 250 },
+  {
+    name: "email",
+    label: "Contact email",
+    type: "email",
+    required: true,
+    maxLength: 254,
+  },
+  {
+    name: "phone",
+    label: "Phone number",
+    type: "tel",
+    maxLength: 20,
+  },
+  {
+    name: "website",
+    label: "Website URL",
+    type: "url",
+    maxLength: 200,
+  },
+  { name: "address", label: "Studio address", maxLength: 500 },
+];
 
-function readCookie(name) {
-  const prefix = `${name}=`;
-  const cookie = document.cookie
-    .split("; ")
-    .find((item) => item.startsWith(prefix));
+const NOTIFICATION_FIELDS = [
+  {
+    name: "notificationEmail",
+    label: "General notification recipient",
+    type: "email",
+    help: "Optional email address for studio alerts.",
+    maxLength: 254,
+  },
+  {
+    name: "bookingEmail",
+    label: "Booking notification recipient",
+    type: "email",
+    help: "Leave blank to use the general recipient.",
+    maxLength: 254,
+  },
+  {
+    name: "inquiryEmail",
+    label: "Inquiry notification recipient",
+    type: "email",
+    help: "Leave blank to use the general recipient.",
+    maxLength: 254,
+  },
+];
 
-  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : "";
-}
+const SOCIAL_FIELDS = [
+  {
+    name: "instagram",
+    label: "Instagram URL",
+    type: "url",
+    placeholder: "https://instagram.com/yourstudio",
+  },
+  {
+    name: "facebook",
+    label: "Facebook URL",
+    type: "url",
+    placeholder: "https://facebook.com/yourstudio",
+  },
+  {
+    name: "youtube",
+    label: "YouTube URL",
+    type: "url",
+    placeholder: "https://youtube.com/@yourstudio",
+  },
+];
 
-function normalizeSettings(data = {}) {
+const NOTIFICATION_TOGGLES = [
+  {
+    name: "bookingNotifications",
+    title: "Booking notifications",
+    description: "Receive alerts about new booking requests.",
+  },
+  {
+    name: "inquiryNotifications",
+    title: "Inquiry notifications",
+    description: "Receive alerts about new client inquiries.",
+  },
+  {
+    name: "reviewNotifications",
+    title: "Review notifications",
+    description: "Receive alerts about newly submitted reviews.",
+  },
+];
+
+function copySettings(settings) {
   return {
-    ...defaultSettings,
-    ...data,
-    workingDays: Array.isArray(data.workingDays)
-      ? data.workingDays
-      : defaultSettings.workingDays,
+    ...settings,
+    workingDays: [...settings.workingDays],
   };
 }
 
+function normalizeSettings(data) {
+  if (!data || typeof data !== "object") {
+    throw new Error("Invalid settings response.");
+  }
+
+  const normalized = {};
+
+  // Keep only the fields used by this form.
+  for (const [name, defaultValue] of Object.entries(DEFAULT_SETTINGS)) {
+    const value = data[name];
+
+    if (name === "workingDays") {
+      if (
+        !Array.isArray(value) ||
+        value.length === 0 ||
+        value.some((day) => !DAYS.includes(day))
+      ) {
+        throw new Error("Invalid working days in settings response.");
+      }
+
+      normalized[name] = DAYS.filter((day) => value.includes(day));
+    } else if (name === "logoUrl" || name === "profileImageUrl") {
+      if (value !== null && typeof value !== "string") {
+        throw new Error("Invalid image URL in settings response.");
+      }
+
+      normalized[name] = value || "";
+    } else if (
+      name === "advanceBookingDays" ||
+      name === "minimumNoticeHours"
+    ) {
+      if (
+        (typeof value !== "number" && typeof value !== "string") ||
+        String(value).trim() === "" ||
+        !Number.isInteger(Number(value))
+      ) {
+        throw new Error("Invalid booking limits in settings response.");
+      }
+
+      normalized[name] = String(value);
+    } else if (typeof defaultValue === "boolean") {
+      if (typeof value !== "boolean") {
+        throw new Error(`Invalid setting: ${name}.`);
+      }
+
+      normalized[name] = value;
+    } else {
+      if (typeof value !== "string") {
+        throw new Error(`Invalid setting: ${name}.`);
+      }
+
+      normalized[name] = value;
+    }
+  }
+
+  return normalized;
+}
+
+function isValidHttpUrl(value) {
+  try {
+    const url = new URL(value);
+
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function validateSettings(settings) {
+  if (!settings.studioName.trim()) {
+    return "Studio name is required.";
+  }
+
+  const emailFields = [
+    ["email", "Contact email"],
+    ["notificationEmail", "General notification recipient"],
+    ["bookingEmail", "Booking notification recipient"],
+    ["inquiryEmail", "Inquiry notification recipient"],
+  ];
+
+  for (const [name, label] of emailFields) {
+    const value = settings[name].trim();
+
+    if (name === "email" && !value) {
+      return "Contact email is required.";
+    }
+
+    if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      return `Enter a valid email address for ${label}.`;
+    }
+  }
+
+  const urlFields = [
+    ["website", "Website"],
+    ["instagram", "Instagram"],
+    ["facebook", "Facebook"],
+    ["youtube", "YouTube"],
+  ];
+
+  for (const [name, label] of urlFields) {
+    const value = settings[name].trim();
+
+    if (value && !isValidHttpUrl(value)) {
+      return `${label} must be a valid URL starting with https:// or http://.`;
+    }
+  }
+
+  if (settings.workingDays.length === 0) {
+    return "Select at least one working day.";
+  }
+
+  const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+  if (
+    !timePattern.test(settings.openingTime) ||
+    !timePattern.test(settings.closingTime)
+  ) {
+    return "Enter valid opening and closing times.";
+  }
+
+  if (settings.closingTime <= settings.openingTime) {
+    return "Closing time must be later than opening time.";
+  }
+
+  if (!settings.advanceBookingDays.trim()) {
+    return "Advance booking window is required.";
+  }
+
+  if (!settings.minimumNoticeHours.trim()) {
+    return "Minimum booking notice is required.";
+  }
+
+  const advanceDays = Number(settings.advanceBookingDays);
+  const noticeHours = Number(settings.minimumNoticeHours);
+
+  if (
+    !Number.isInteger(advanceDays) ||
+    advanceDays < 1 ||
+    advanceDays > 365
+  ) {
+    return "Advance booking window must be between 1 and 365 days.";
+  }
+
+  if (
+    !Number.isInteger(noticeHours) ||
+    noticeHours < 0 ||
+    noticeHours > 720
+  ) {
+    return "Minimum booking notice must be between 0 and 720 hours.";
+  }
+
+  if (noticeHours > advanceDays * 24) {
+    return "Minimum notice cannot exceed the advance booking window.";
+  }
+
+  if (settings.autoReplyEnabled) {
+    if (!settings.emailSubject.trim()) {
+      return "Email subject is required when automatic replies are enabled.";
+    }
+
+    if (!settings.emailMessage.trim()) {
+      return "Reply message is required when automatic replies are enabled.";
+    }
+  }
+
+  return "";
+}
+
+function Field({
+  label,
+  name,
+  value,
+  onChange,
+  type = "text",
+  help = "",
+  required = false,
+  ...inputProps
+}) {
+  return (
+    <label className="admin-settings__field">
+      <span className="admin-settings__label">
+        {label}
+        {required && <span aria-hidden="true"> *</span>}
+      </span>
+
+      <input
+        className="admin-settings__input"
+        name={name}
+        type={type}
+        value={value ?? ""}
+        onChange={onChange}
+        required={required}
+        {...inputProps}
+      />
+
+      {help && <span className="admin-settings__help">{help}</span>}
+    </label>
+  );
+}
+
+function Toggle({ name, title, description, checked, onChange }) {
+  return (
+    <label className="admin-settings__toggle-row">
+      <span className="admin-settings__toggle-copy">
+        <span className="admin-settings__toggle-title">{title}</span>
+        <span className="admin-settings__help">{description}</span>
+      </span>
+
+      <input
+        className="admin-settings__switch-input"
+        type="checkbox"
+        name={name}
+        checked={checked}
+        onChange={onChange}
+      />
+
+      <span className="admin-settings__switch" aria-hidden="true" />
+    </label>
+  );
+}
+
+function SettingsCard({ icon: Icon, title, description, children }) {
+  return (
+    <section className="admin-settings__card">
+      <div className="admin-settings__section-heading">
+        <span className="admin-settings__section-icon">
+          <Icon size={20} aria-hidden="true" />
+        </span>
+
+        <div>
+          <h2>{title}</h2>
+          <p>{description}</p>
+        </div>
+      </div>
+
+      {children}
+    </section>
+  );
+}
+
+function ImageUpload({
+  title,
+  description,
+  preview,
+  isLogo = false,
+  onChange,
+}) {
+  return (
+    <div className="admin-settings__upload-card">
+      <div
+        className={`admin-settings__preview ${
+          isLogo ? "admin-settings__preview--logo" : ""
+        }`}
+      >
+        {preview ? (
+          <img src={preview} alt={`${title} preview`} />
+        ) : (
+          <Camera size={30} aria-hidden="true" />
+        )}
+      </div>
+
+      <div className="admin-settings__upload-copy">
+        <h3>{title}</h3>
+        <p>{description}</p>
+
+        <label className="admin-settings__upload-button">
+          <ImagePlus size={16} aria-hidden="true" />
+          Choose image
+
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={onChange}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminSettings() {
+  const { apiRequest } = useAuth();
+
+  const settingsApi = useMemo(
+    () => createAdminSettingsService(apiRequest),
+    [apiRequest],
+  );
+
   const [settings, setSettings] = useState(() =>
-    clone(defaultSettings)
+    copySettings(DEFAULT_SETTINGS),
   );
-  const [savedSettings, setSavedSettings] = useState(() =>
-    clone(defaultSettings)
-  );
+  const [savedSettings, setSavedSettings] = useState(null);
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [retryCount, setRetryCount] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState(null);
 
   const [logoFile, setLogoFile] = useState(null);
   const [profileFile, setProfileFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState("");
   const [profilePreview, setProfilePreview] = useState("");
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState(null);
-  const [serverConnected, setServerConnected] = useState(false);
+  const mountedRef = useRef(false);
+  const savingRef = useRef(false);
 
-  const hasChanges = useMemo(() => {
-    return (
-      JSON.stringify(settings) !== JSON.stringify(savedSettings) ||
-      Boolean(logoFile) ||
-      Boolean(profileFile)
-    );
-  }, [settings, savedSettings, logoFile, profileFile]);
+  useEffect(() => {
+    mountedRef.current = true;
 
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Load settings when this page opens or the user retries.
   useEffect(() => {
     let active = true;
 
     async function loadSettings() {
-      setLoading(true);
-
       try {
-        const response = await fetch(API_URL, {
-          method: "GET",
-          credentials: "include",
-          headers: { Accept: "application/json" },
-        });
+        const response = await settingsApi.getSettings();
+        const loadedSettings = normalizeSettings(response);
 
-        if (!response.ok) {
-          if (response.status === 401 || response.status === 403) {
-            throw new Error(
-              "Access denied. Please sign in with an authorized admin account."
-            );
-          }
-
-          throw new Error(
-            `Unable to load settings (HTTP ${response.status}).`
-          );
+        if (active) {
+          setSettings(loadedSettings);
+          setSavedSettings(copySettings(loadedSettings));
+          setLoadError("");
         }
-
-        const data = normalizeSettings(await response.json());
-
-        if (!active) return;
-
-        setSettings(data);
-        setSavedSettings(clone(data));
-        setServerConnected(true);
-        setNotice({
-          type: "success",
-          text: "Settings loaded from the server.",
-        });
       } catch (error) {
-        if (!active) return;
-
-        setServerConnected(false);
-        setNotice({
-          type: "error",
-          text:
-            error.message ||
-            "Could not load settings. Check your Django API connection.",
-        });
+        if (active) {
+          setLoadError(error?.message || "Unable to load studio settings.");
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -175,26 +503,41 @@ export default function AdminSettings() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [settingsApi, retryCount]);
 
+  // Release temporary image URLs when replaced or removed.
   useEffect(() => {
     return () => {
-      if (logoPreview.startsWith("blob:")) {
-        URL.revokeObjectURL(logoPreview);
-      }
+      if (logoPreview) URL.revokeObjectURL(logoPreview);
     };
   }, [logoPreview]);
 
   useEffect(() => {
     return () => {
-      if (profilePreview.startsWith("blob:")) {
-        URL.revokeObjectURL(profilePreview);
-      }
+      if (profilePreview) URL.revokeObjectURL(profilePreview);
     };
   }, [profilePreview]);
 
-  const updateField = (event) => {
-    const { name, value, type, checked } = event.target;
+  const hasChanges =
+    savedSettings !== null &&
+    (
+      JSON.stringify(settings) !== JSON.stringify(savedSettings) ||
+      Boolean(logoFile) ||
+      Boolean(profileFile)
+    );
+
+  const websiteUrl = settings.website.trim();
+  const canOpenWebsite = isValidHttpUrl(websiteUrl);
+
+  function handleRetryLoad() {
+    setLoading(true);
+    setLoadError("");
+    setNotice(null);
+    setRetryCount((count) => count + 1);
+  }
+
+  function updateField(event) {
+    const { name, type, value, checked } = event.target;
 
     setSettings((current) => ({
       ...current,
@@ -202,330 +545,220 @@ export default function AdminSettings() {
     }));
 
     setNotice(null);
-  };
+  }
 
-  const toggleDay = (day) => {
-    setSettings((current) => ({
-      ...current,
-      workingDays: current.workingDays.includes(day)
+  function toggleDay(day) {
+    setSettings((current) => {
+      const selectedDays = current.workingDays.includes(day)
         ? current.workingDays.filter((item) => item !== day)
-        : [...current.workingDays, day],
-    }));
+        : [...current.workingDays, day];
+
+      return {
+        ...current,
+        workingDays: DAYS.filter((item) => selectedDays.includes(item)),
+      };
+    });
 
     setNotice(null);
-  };
+  }
 
-  const handleImageChange = (event, type) => {
-    const file = event.target.files?.[0];
+  function handleImageChange(event, imageType) {
+    const input = event.target;
+    const file = input.files?.[0];
+
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
+    const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
+
+    if (!allowedTypes.includes(file.type)) {
       setNotice({
         type: "error",
-        text: "Please select a valid image file.",
+        text: "Choose a PNG, JPEG or WebP image.",
       });
-      event.target.value = "";
+      input.value = "";
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size === 0 || file.size > 5 * 1024 * 1024) {
       setNotice({
         type: "error",
-        text: "Image size must be 5 MB or less.",
+        text: "Choose a non-empty image of 5 MB or less.",
       });
-      event.target.value = "";
+      input.value = "";
       return;
     }
 
     const previewUrl = URL.createObjectURL(file);
 
-    if (type === "logo") {
+    if (imageType === "logo") {
       setLogoFile(file);
-      setLogoPreview((current) => {
-        if (current.startsWith("blob:")) URL.revokeObjectURL(current);
-        return previewUrl;
-      });
+      setLogoPreview(previewUrl);
     } else {
       setProfileFile(file);
-      setProfilePreview((current) => {
-        if (current.startsWith("blob:")) URL.revokeObjectURL(current);
-        return previewUrl;
-      });
+      setProfilePreview(previewUrl);
     }
 
+    input.value = "";
     setNotice(null);
-  };
+  }
 
-  const validateSettings = () => {
-    if (!settings.studioName.trim()) {
-      return "Studio name is required.";
-    }
+  function clearImages() {
+    setLogoFile(null);
+    setProfileFile(null);
+    setLogoPreview("");
+    setProfilePreview("");
+  }
 
-    if (!settings.email.trim()) {
-      return "Studio email is required.";
-    }
+  function handleDiscard() {
+    if (!savedSettings || savingRef.current) return;
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.email)) {
-      return "Enter a valid studio email address.";
-    }
+    setSettings(copySettings(savedSettings));
+    clearImages();
 
-    if (
-      settings.website &&
-      !/^https?:\/\/.+/i.test(settings.website)
-    ) {
-      return "Website URL must start with http:// or https://.";
-    }
+    setNotice({
+      type: "info",
+      text: "Unsaved changes discarded. Last saved settings restored.",
+    });
+  }
 
-    if (settings.workingDays.length === 0) {
-      return "Select at least one working day.";
-    }
+  function handleReset() {
+    if (savingRef.current) return;
 
-    if (settings.closingTime <= settings.openingTime) {
-      return "Closing time must be later than opening time.";
-    }
+    const confirmed = window.confirm(
+      "Restore default field values? Existing saved images will remain. Click Save settings afterwards to apply.",
+    );
 
-    const advanceDays = Number(settings.advanceBookingDays);
-    const noticeHours = Number(settings.minimumNoticeHours);
+    if (!confirmed) return;
 
-    if (
-      !Number.isInteger(advanceDays) ||
-      advanceDays < 1 ||
-      advanceDays > 365
-    ) {
-      return "Advance booking days must be between 1 and 365.";
-    }
+    setSettings({
+      ...copySettings(DEFAULT_SETTINGS),
+      logoUrl: savedSettings?.logoUrl || "",
+      profileImageUrl: savedSettings?.profileImageUrl || "",
+    });
 
-    if (
-      !Number.isInteger(noticeHours) ||
-      noticeHours < 0 ||
-      noticeHours > 720
-    ) {
-      return "Minimum booking notice must be between 0 and 720 hours.";
-    }
+    clearImages();
 
-    for (const field of ["bookingEmail", "inquiryEmail", "notificationEmail"]) {
-      const email = settings[field].trim();
+    setNotice({
+      type: "info",
+      text: "Default field values restored locally. Save to apply them.",
+    });
+  }
 
-      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return `Please enter a valid email in ${field}.`;
-      }
-    }
-
-    return "";
-  };
-
-  const handleSubmit = async (event) => {
+  async function handleSubmit(event) {
     event.preventDefault();
 
-    const validationError = validateSettings();
+    // Ref prevents duplicate submissions before React updates the button.
+    if (savingRef.current || !savedSettings || !hasChanges) return;
+
+    const validationError = validateSettings(settings);
 
     if (validationError) {
       setNotice({ type: "error", text: validationError });
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
     setNotice(null);
 
     try {
-      const payload = new FormData();
+      const response = await settingsApi.updateSettings(
+        settings,
+        logoFile,
+        profileFile,
+      );
 
-      Object.entries(settings).forEach(([key, value]) => {
-        payload.append(
-          key,
-          Array.isArray(value) ? JSON.stringify(value) : String(value)
-        );
-      });
+      const updatedSettings = normalizeSettings(response);
 
-      if (logoFile) payload.append("logo", logoFile);
-      if (profileFile) payload.append("profileImage", profileFile);
-
-      const headers = { Accept: "application/json" };
-      const csrfToken = readCookie("csrftoken");
-
-      if (csrfToken) {
-        headers["X-CSRFToken"] = csrfToken;
-      }
-
-      const response = await fetch(API_URL, {
-        method: "PUT",
-        credentials: "include",
-        headers,
-        body: payload,
-      });
-
-      if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
-          throw new Error(
-            "You are not authorized to update these settings."
-          );
-        }
-
-        const detail = await response.text();
-        throw new Error(
-          detail || `Settings could not be saved (HTTP ${response.status}).`
-        );
-      }
-
-      const responseData = await response.json();
-      const updatedSettings = normalizeSettings(responseData);
+      if (!mountedRef.current) return;
 
       setSettings(updatedSettings);
-      setSavedSettings(clone(updatedSettings));
-      setLogoFile(null);
-      setProfileFile(null);
-      setLogoPreview("");
-      setProfilePreview("");
-      setServerConnected(true);
+      setSavedSettings(copySettings(updatedSettings));
+      clearImages();
 
       setNotice({
         type: "success",
         text: "Settings saved successfully.",
       });
     } catch (error) {
-      setNotice({
-        type: "error",
-        text:
-          error.message ||
-          "Could not save settings. Check your Django API connection.",
-      });
+      if (mountedRef.current) {
+        setNotice({
+          type: "error",
+          text: error?.message || "Unable to save studio settings.",
+        });
+      }
     } finally {
-      setSaving(false);
+      savingRef.current = false;
+
+      if (mountedRef.current) setSaving(false);
     }
-  };
+  }
 
-  const handleDiscard = () => {
-    setSettings(clone(savedSettings));
-    setLogoFile(null);
-    setProfileFile(null);
-    setLogoPreview("");
-    setProfilePreview("");
-    setNotice({
-      type: "success",
-      text: "Unsaved changes have been discarded.",
-    });
-  };
-
-  const handleReset = () => {
-    const confirmed = window.confirm(
-      "Reset all fields to the original defaults? Save afterwards to update the server."
+  if (loading) {
+    return (
+      <section className="admin-settings">
+        <div className="admin-settings__loading" role="status">
+          <LoaderCircle
+            className="admin-settings__spinner"
+            size={24}
+            aria-hidden="true"
+          />
+          <span>Loading studio settings...</span>
+        </div>
+      </section>
     );
+  }
 
-    if (!confirmed) return;
+  if (loadError) {
+    return (
+      <section className="admin-settings">
+        <h1 className="admin-settings__title">Studio Settings</h1>
 
-    setSettings(clone(defaultSettings));
-    setLogoFile(null);
-    setProfileFile(null);
-    setLogoPreview("");
-    setProfilePreview("");
-    setNotice({
-      type: "success",
-      text: "Defaults restored locally. Save to persist these changes.",
-    });
-  };
+        <div
+          className="admin-settings__notice admin-settings__notice--error"
+          role="alert"
+        >
+          <AlertCircle size={19} aria-hidden="true" />
+          <span>{loadError}</span>
+        </div>
 
-
-function ToggleControl({ checked, onChange, label, description }) {
-  return (
-    <label className="admin-settings__toggle-row">
-      <span className="admin-settings__toggle-copy">
-        <span className="admin-settings__toggle-title">
-          {label}
-        </span>
-
-        {description && <span>{description}</span>}
-      </span>
-
-      <span>
-        <input
-          className="admin-settings__switch-input"
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => onChange(event.target.checked)}
-        />
-        <span className="admin-settings__switch" />
-      </span>
-    </label>
-  );
-}
-  const Field = ({
-    label,
-    name,
-    type = "text",
-    placeholder = "",
-    help = "",
-    required = false,
-  }) => (
-    <label className="admin-settings__field">
-      <span className="admin-settings__label">
-        {label}
-        {required && <span aria-hidden="true"> *</span>}
-      </span>
-      <input
-        className="admin-settings__input"
-        name={name}
-        type={type}
-        value={settings[name] ?? ""}
-        onChange={updateField}
-        placeholder={placeholder}
-        required={required}
-      />
-      {help && <span className="admin-settings__help">{help}</span>}
-    </label>
-  );
-
-  const Toggle = ({ name, title, description }) => (
-    <label className="admin-settings__toggle-row">
-      <span className="admin-settings__toggle-copy">
-        <span className="admin-settings__toggle-title">{title}</span>
-        <span className="admin-settings__help">{description}</span>
-      </span>
-      <input
-        className="admin-settings__switch-input"
-        type="checkbox"
-        name={name}
-        checked={Boolean(settings[name])}
-        onChange={updateField}
-      />
-      <span className="admin-settings__switch" aria-hidden="true" />
-    </label>
-  );
+        <button
+          type="button"
+          className="admin-settings__secondary-button"
+          onClick={handleRetryLoad}
+        >
+          <RotateCcw size={17} aria-hidden="true" />
+          Try again
+        </button>
+      </section>
+    );
+  }
 
   return (
     <section className="admin-settings">
       <header className="admin-settings__header">
         <div>
-          <span className="admin-settings__eyebrow">
-            CONTROL CENTRE
-          </span>
+          <span className="admin-settings__eyebrow">CONTROL CENTRE</span>
           <h1 className="admin-settings__title">Studio Settings</h1>
           <p className="admin-settings__subtitle">
             Manage your studio profile, bookings, notifications and brand.
           </p>
         </div>
 
-        <div
-          className={`admin-settings__connection ${
-            serverConnected
-              ? "admin-settings__connection--online"
-              : "admin-settings__connection--offline"
-          }`}
-        >
-          <span className="admin-settings__connection-dot" />
-          {serverConnected ? "Server connected" : "Server not verified"}
-        </div>
+        
       </header>
 
       {notice && (
         <div
-          className={`admin-settings__notice admin-settings__notice--${notice.type}`}
-          role="status"
-          aria-live="polite"
+          className={`admin-settings__notice admin-settings__notice--${
+            notice.type === "error" ? "error" : "success"
+          }`}
+          role={notice.type === "error" ? "alert" : "status"}
         >
           {notice.type === "error" ? (
-            <AlertCircle size={19} />
+            <AlertCircle size={19} aria-hidden="true" />
           ) : (
-            <CheckCircle2 size={19} />
+            <CheckCircle2 size={19} aria-hidden="true" />
           )}
           <span>{notice.text}</span>
         </div>
@@ -538,144 +771,91 @@ function ToggleControl({ checked, onChange, label, description }) {
         </div>
       )}
 
-      {loading ? (
-        <div className="admin-settings__loading">
-          <LoaderCircle className="admin-settings__spinner" size={24} />
-          <span>Loading studio settings…</span>
-        </div>
-      ) : (
-        <form
-          className="admin-settings__form"
-          onSubmit={handleSubmit}
-          noValidate
+      <form
+        className="admin-settings__form"
+        onSubmit={handleSubmit}
+        noValidate
+        aria-busy={saving}
+      >
+        {/* Prevent edits while a save request is running. */}
+        <fieldset
+          disabled={saving}
+          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
         >
+          <legend className="admin-settings__help">
+            Studio configuration
+          </legend>
+
           <div className="admin-settings__layout">
             <div className="admin-settings__main">
-              <section className="admin-settings__card">
-                <div className="admin-settings__section-heading">
-                  <span className="admin-settings__section-icon">
-                    <Building2 size={20} />
-                  </span>
-                  <div>
-                    <h2>Studio Profile</h2>
-                    <p>Business identity and public contact information.</p>
-                  </div>
-                </div>
-
+              <SettingsCard
+                icon={Building2}
+                title="Studio Profile"
+                description="Business identity and public contact information."
+              >
                 <div className="admin-settings__fields">
-                  <Field
-                    label="Studio name"
-                    name="studioName"
-                    required
-                  />
-                  <Field label="Tagline" name="tagline" />
-                  <Field
-                    label="Contact email"
-                    name="email"
-                    type="email"
-                    required
-                  />
-                  <Field label="Phone number" name="phone" type="tel" />
-                  <Field label="Website URL" name="website" type="url" />
-                  <Field label="Studio address" name="address" />
+                  {PROFILE_FIELDS.map((field) => (
+                    <Field
+                      key={field.name}
+                      {...field}
+                      value={settings[field.name]}
+                      onChange={updateField}
+                    />
+                  ))}
                 </div>
-              </section>
+              </SettingsCard>
 
-              <section className="admin-settings__card">
-                <div className="admin-settings__section-heading">
-                  <span className="admin-settings__section-icon">
-                    <ImagePlus size={20} />
-                  </span>
-                  <div>
-                    <h2>Studio Branding</h2>
-                    <p>Upload the visual assets used for your studio identity.</p>
-                  </div>
-                </div>
-
+              <SettingsCard
+                icon={ImagePlus}
+                title="Studio Branding"
+                description="Choose the visual assets for your studio identity."
+              >
                 <div className="admin-settings__branding-grid">
-                  <div className="admin-settings__upload-card">
-                    <div className="admin-settings__preview admin-settings__preview--logo">
-                      {logoPreview || settings.logoUrl ? (
-                        <img
-                          src={logoPreview || settings.logoUrl}
-                          alt="Studio logo preview"
-                        />
-                      ) : (
-                        <Camera size={30} />
-                      )}
-                    </div>
-                    <div className="admin-settings__upload-copy">
-                      <h3>Studio logo</h3>
-                      <p>Recommended: square or transparent PNG/SVG.</p>
-                      <label className="admin-settings__upload-button">
-                        <ImagePlus size={16} />
-                        Choose logo
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(event) =>
-                            handleImageChange(event, "logo")
-                          }
-                        />
-                      </label>
-                    </div>
-                  </div>
+                  <ImageUpload
+                    title="Studio logo"
+                    description="Use a square or transparent PNG."
+                    preview={logoPreview || settings.logoUrl}
+                    isLogo
+                    onChange={(event) => handleImageChange(event, "logo")}
+                  />
 
-                  <div className="admin-settings__upload-card">
-                    <div className="admin-settings__preview">
-                      {profilePreview || settings.profileImageUrl ? (
-                        <img
-                          src={profilePreview || settings.profileImageUrl}
-                          alt="Studio profile preview"
-                        />
-                      ) : (
-                        <Camera size={30} />
-                      )}
-                    </div>
-                    <div className="admin-settings__upload-copy">
-                      <h3>Studio profile image</h3>
-                      <p>Use a high-quality studio or brand photograph.</p>
-                      <label className="admin-settings__upload-button">
-                        <ImagePlus size={16} />
-                        Choose image
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(event) =>
-                            handleImageChange(event, "profile")
-                          }
-                        />
-                      </label>
-                    </div>
-                  </div>
+                  <ImageUpload
+                    title="Studio profile image"
+                    description="Use a clear studio or brand photograph."
+                    preview={profilePreview || settings.profileImageUrl}
+                    onChange={(event) =>
+                      handleImageChange(event, "profile")
+                    }
+                  />
                 </div>
+
                 <p className="admin-settings__help">
-                  Maximum image size: 5 MB. Images are uploaded only when you save.
+                  PNG, JPEG or WebP. Maximum 5 MB per image. Selected
+                  images upload when you save.
                 </p>
-              </section>
+              </SettingsCard>
 
-              <section className="admin-settings__card">
-                <div className="admin-settings__section-heading">
-                  <span className="admin-settings__section-icon">
-                    <Clock3 size={20} />
-                  </span>
-                  <div>
-                    <h2>Business Hours</h2>
-                    <p>Set when clients can contact or visit the studio.</p>
-                  </div>
-                </div>
-
+              <SettingsCard
+                icon={Clock3}
+                title="Business Hours"
+                description="Set your studio's opening hours and working days."
+              >
                 <div className="admin-settings__fields admin-settings__fields--two">
                   <Field
                     label="Opening time"
                     name="openingTime"
                     type="time"
+                    value={settings.openingTime}
+                    onChange={updateField}
                     required
                   />
+
                   <Field
                     label="Closing time"
                     name="closingTime"
                     type="time"
+                    value={settings.closingTime}
+                    onChange={updateField}
                     required
                   />
                 </div>
@@ -684,41 +864,41 @@ function ToggleControl({ checked, onChange, label, description }) {
                   <span className="admin-settings__label">
                     Working days
                   </span>
+
                   <div className="admin-settings__days">
-                    {DAYS.map((day) => (
-                      <button
-                        key={day}
-                        type="button"
-                        className={`admin-settings__day ${
-                          settings.workingDays.includes(day)
-                            ? "admin-settings__day--active"
-                            : ""
-                        }`}
-                        aria-pressed={settings.workingDays.includes(day)}
-                        onClick={() => toggleDay(day)}
-                      >
-                        {day.slice(0, 3)}
-                      </button>
-                    ))}
+                    {DAYS.map((day) => {
+                      const selected = settings.workingDays.includes(day);
+
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          className={`admin-settings__day ${
+                            selected ? "admin-settings__day--active" : ""
+                          }`}
+                          aria-label={day}
+                          aria-pressed={selected}
+                          onClick={() => toggleDay(day)}
+                        >
+                          {day.slice(0, 3)}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-              </section>
+              </SettingsCard>
 
-              <section className="admin-settings__card">
-                <div className="admin-settings__section-heading">
-                  <span className="admin-settings__section-icon">
-                    <CalendarDays size={20} />
-                  </span>
-                  <div>
-                    <h2>Booking Configuration</h2>
-                    <p>Control whether clients can submit booking requests.</p>
-                  </div>
-                </div>
-
+              <SettingsCard
+                icon={CalendarDays}
+                title="Booking Configuration"
+                description="Set your preferences for new booking requests."
+              >
                 <Toggle
                   name="bookingsEnabled"
                   title="Accept booking requests"
                   description="Allow clients to submit new booking requests."
+                  checked={settings.bookingsEnabled}
+                  onChange={updateField}
                 />
 
                 <div className="admin-settings__fields admin-settings__fields--two">
@@ -726,201 +906,129 @@ function ToggleControl({ checked, onChange, label, description }) {
                     label="Advance booking window (days)"
                     name="advanceBookingDays"
                     type="number"
+                    min={1}
+                    max={365}
+                    step={1}
+                    required
+                    value={settings.advanceBookingDays}
+                    onChange={updateField}
                     help="How far ahead clients may request a session."
                   />
+
                   <Field
                     label="Minimum notice (hours)"
                     name="minimumNoticeHours"
                     type="number"
+                    min={0}
+                    max={720}
+                    step={1}
+                    required
+                    value={settings.minimumNoticeHours}
+                    onChange={updateField}
                     help="Minimum notice before a requested session."
                   />
                 </div>
-              </section>
+              </SettingsCard>
 
-              <section className="admin-settings__card">
-                <div className="admin-settings__section-heading">
-                  <span className="admin-settings__section-icon">
-                    <Bell size={20} />
-                  </span>
-                  <div>
-                    <h2>Notifications</h2>
-                    <p>Choose which events should trigger notifications.</p>
-                  </div>
-                </div>
-
-                <Toggle
-                  name="bookingNotifications"
-                  title="Booking notifications"
-                  description="Get notified about new booking requests."
-                />
-                <Toggle
-                  name="inquiryNotifications"
-                  title="Inquiry notifications"
-                  description="Get notified when a client sends an inquiry."
-                />
-                <Toggle
-                  name="reviewNotifications"
-                  title="Review notifications"
-                  description="Get notified when a new review is submitted."
-                />
+              <SettingsCard
+                icon={Bell}
+                title="Notifications"
+                description="Choose which events should trigger notifications."
+              >
+                {NOTIFICATION_TOGGLES.map((toggle) => (
+                  <Toggle
+                    key={toggle.name}
+                    {...toggle}
+                    checked={settings[toggle.name]}
+                    onChange={updateField}
+                  />
+                ))}
 
                 <div className="admin-settings__fields">
-                  <Field
-                    label="General notification recipient"
-                    name="notificationEmail"
-                    type="email"
-                    help="Optional email address for studio alerts."
-                  />
-                  <Field
-                    label="Booking notification recipient"
-                    name="bookingEmail"
-                    type="email"
-                    help="Leave blank to use the general recipient."
-                  />
-                  <Field
-                    label="Inquiry notification recipient"
-                    name="inquiryEmail"
-                    type="email"
-                    help="Leave blank to use the general recipient."
-                  />
+                  {NOTIFICATION_FIELDS.map((field) => (
+                    <Field
+                      key={field.name}
+                      {...field}
+                      value={settings[field.name]}
+                      onChange={updateField}
+                    />
+                  ))}
                 </div>
-              </section>
+              </SettingsCard>
 
-              <section className="admin-settings__card">
-                <div className="admin-settings__section-heading">
-                  <span className="admin-settings__section-icon">
-                    <Mail size={20} />
-                  </span>
-                  <div>
-                    <h2>Email Configuration</h2>
-                    <p>Configure the automatic reply sent to clients.</p>
-                  </div>
-                </div>
-
+              <SettingsCard
+                icon={Mail}
+                title="Email Configuration"
+                description="Prepare the automatic reply sent after an inquiry."
+              >
                 <Toggle
                   name="autoReplyEnabled"
                   title="Automatic inquiry reply"
-                  description="Send a confirmation message after an inquiry is received."
+                  description="Send a confirmation after an inquiry is received."
+                  checked={settings.autoReplyEnabled}
+                  onChange={updateField}
                 />
 
                 <div className="admin-settings__fields">
                   <Field
                     label="Email subject"
                     name="emailSubject"
-                    required
+                    value={settings.emailSubject}
+                    onChange={updateField}
+                    maxLength={250}
+                    required={settings.autoReplyEnabled}
+                    disabled={!settings.autoReplyEnabled}
                   />
+
                   <label className="admin-settings__field">
                     <span className="admin-settings__label">
                       Automatic reply message
+                      {settings.autoReplyEnabled && (
+                        <span aria-hidden="true"> *</span>
+                      )}
                     </span>
+
                     <textarea
                       className="admin-settings__input admin-settings__textarea"
                       name="emailMessage"
                       value={settings.emailMessage}
                       onChange={updateField}
                       rows={5}
-                      required
+                      maxLength={5000}
+                      required={settings.autoReplyEnabled}
+                      disabled={!settings.autoReplyEnabled}
                     />
                   </label>
                 </div>
+              </SettingsCard>
 
-                <p className="admin-settings__help">
-                  Actual email delivery also requires Django email settings and
-                  a backend email-sending workflow.
-                </p>
-              </section>
-
-              <section className="admin-settings__card">
-                <div className="admin-settings__section-heading">
-                  <span className="admin-settings__section-icon">
-                    <Globe size={20} />
-                  </span>
-                  <div>
-                    <h2>Social Media Links</h2>
-                    <p>Connect your studio's public social profiles.</p>
-                  </div>
-                </div>
-
+              <SettingsCard
+                icon={Globe}
+                title="Social Media Links"
+                description="Connect your studio's public social profiles."
+              >
                 <div className="admin-settings__fields">
-                  <Field
-                    label="Instagram URL"
-                    name="instagram"
-                    type="url"
-                    placeholder="https://instagram.com/yourstudio"
-                  />
-                  <Field
-                    label="Facebook URL"
-                    name="facebook"
-                    type="url"
-                    placeholder="https://facebook.com/yourstudio"
-                  />
-                  <Field
-                    label="YouTube URL"
-                    name="youtube"
-                    type="url"
-                    placeholder="https://youtube.com/@yourstudio"
-                  />
+                  {SOCIAL_FIELDS.map((field) => (
+                    <Field
+                      key={field.name}
+                      {...field}
+                      maxLength={200}
+                      value={settings[field.name]}
+                      onChange={updateField}
+                    />
+                  ))}
                 </div>
-              </section>
+              </SettingsCard>
             </div>
 
             <aside className="admin-settings__sidebar">
-              <section className="admin-settings__card admin-settings__security">
-                <div className="admin-settings__section-heading">
-                  <span className="admin-settings__section-icon">
-                    <ShieldCheck size={20} />
-                  </span>
-                  <div>
-                    <h2>Admin Security</h2>
-                    <p>Access and permission status.</p>
-                  </div>
-                </div>
+              
 
-                <div className="admin-settings__security-status">
-                  <ShieldCheck size={20} />
-                  <div>
-                    <strong>Protected admin endpoint</strong>
-                    <span>
-                      {serverConnected
-                        ? "Settings endpoint responded successfully."
-                        : "Backend authorization has not been verified."}
-                    </span>
-                  </div>
-                </div>
-
-                <ul className="admin-settings__security-list">
-                  <li>
-                    <CheckCircle2 size={16} />
-                    Frontend validation enabled
-                  </li>
-                  <li>
-                    <AlertCircle size={16} />
-                    Django role checks required
-                  </li>
-                  <li>
-                    <AlertCircle size={16} />
-                    CSRF/session configuration required
-                  </li>
-                </ul>
-
-                <p className="admin-settings__help">
-                  This panel does not grant admin rights by itself. Django
-                  must verify the signed-in user and reject unauthorized
-                  requests on both GET and PUT.
-                </p>
-              </section>
-
-              <section className="admin-settings__card">
-                <div className="admin-settings__section-heading">
-                  <span className="admin-settings__section-icon">
-                    <Settings size={20} />
-                  </span>
-                  <div>
-                    <h2>Change Management</h2>
-                    <p>Keep edits under control.</p>
-                  </div>
-                </div>
-
+              <SettingsCard
+                icon={Settings}
+                title="Change Management"
+                description="Review or discard your edits."
+              >
                 <div className="admin-settings__change-status">
                   <span
                     className={`admin-settings__status-dot ${
@@ -929,7 +1037,10 @@ function ToggleControl({ checked, onChange, label, description }) {
                         : ""
                     }`}
                   />
-                  {hasChanges ? "Unsaved changes" : "All changes saved"}
+
+                  {hasChanges
+                    ? "Unsaved changes"
+                    : "Matches last saved settings"}
                 </div>
 
                 <button
@@ -938,7 +1049,7 @@ function ToggleControl({ checked, onChange, label, description }) {
                   onClick={handleDiscard}
                   disabled={!hasChanges || saving}
                 >
-                  <RotateCcw size={17} />
+                  <RotateCcw size={17} aria-hidden="true" />
                   Discard changes
                 </button>
 
@@ -948,20 +1059,20 @@ function ToggleControl({ checked, onChange, label, description }) {
                   onClick={handleReset}
                   disabled={saving}
                 >
-                  <RotateCcw size={17} />
+                  <RotateCcw size={17} aria-hidden="true" />
                   Restore defaults
                 </button>
-              </section>
+              </SettingsCard>
 
-              {settings.website && (
+              {canOpenWebsite && (
                 <a
                   className="admin-settings__website-link"
-                  href={settings.website}
+                  href={websiteUrl}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                 >
                   View studio website
-                  <ExternalLink size={16} />
+                  <ExternalLink size={16} aria-hidden="true" />
                 </a>
               )}
             </aside>
@@ -969,29 +1080,33 @@ function ToggleControl({ checked, onChange, label, description }) {
 
           <div className="admin-settings__footer">
             <span className="admin-settings__footer-note">
-              {hasChanges
-                ? "Remember to save your changes."
-                : "Your form matches the last loaded or saved settings."}
+              {saving
+                ? "Saving settings..."
+                : hasChanges
+                  ? "Remember to save your changes."
+                  : "Your form matches the last saved settings."}
             </span>
 
             <button
               className="admin-settings__save-button"
               type="submit"
-              disabled={saving || loading || !hasChanges}
+              disabled={saving || !hasChanges}
             >
               {saving ? (
                 <LoaderCircle
                   className="admin-settings__spinner"
                   size={18}
+                  aria-hidden="true"
                 />
               ) : (
-                <Save size={18} />
+                <Save size={18} aria-hidden="true" />
               )}
-              {saving ? "Saving…" : "Save settings"}
+
+              {saving ? "Saving..." : "Save settings"}
             </button>
           </div>
-        </form>
-      )}
+        </fieldset>
+      </form>
     </section>
   );
 }

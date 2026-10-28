@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   Link,
   Navigate,
@@ -7,6 +6,8 @@ import {
   Route,
   Routes,
 } from "react-router-dom";
+
+import { useAuth } from "./context/AuthContext";
 
 import AdminLayout from "./components/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/Dashboard/AdminDashboard";
@@ -25,7 +26,7 @@ import Payments from "./pages/user/Payments/Payments";
 import Profile from "./pages/user/Profile/Profile";
 
 import SiteHeader from "./pages/public/Header/SiteHeader";
-import HeroSection from "./pages/public/Hero/HeroSection";
+import HomePage from "./pages/public/Home/HomePage";
 import AboutSection from "./pages/public/About/AboutSection";
 import ServicesSection from "./pages/public/Services/ServicesSection";
 import PortfolioSection from "./pages/public/Portfolio/PortfolioSection";
@@ -37,8 +38,6 @@ import RegisterPageComponent from "./pages/auth/Register/RegisterPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPassword/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPassword/ResetPasswordPage";
 
-const SESSION_API = "/api/auth/me/";
-
 const customerLinks = [
   { to: "/dashboard", label: "Overview", end: true },
   { to: "/dashboard/bookings", label: "My bookings" },
@@ -48,9 +47,12 @@ const customerLinks = [
 ];
 
 function normalizeRole(user) {
-  return String(user?.role || user?.user_type || "")
-    .trim()
-    .toLowerCase();
+  if (!user) return "";
+
+  if (user.is_superuser === true) return "superuser";
+  if (user.is_staff === true) return "admin";
+
+  return "customer";
 }
 
 function getRoleHome(role) {
@@ -65,56 +67,11 @@ function getRoleHome(role) {
   return "/login";
 }
 
-/* Verifies the current session with Django */
+/* Protects routes using the shared JWT authentication state. */
 function RequireRole({ allowedRoles }) {
-  const [status, setStatus] = useState("loading");
-  const [user, setUser] = useState(null);
+  const { user, loading, isAuthenticated } = useAuth();
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function checkSession() {
-      try {
-        const response = await fetch(SESSION_API, {
-          method: "GET",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-          },
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          setUser(null);
-          setStatus("unauthenticated");
-          return;
-        }
-
-        const data = await response.json();
-        const currentUser = data.user || data;
-
-        if (!currentUser || !normalizeRole(currentUser)) {
-          setUser(null);
-          setStatus("unauthenticated");
-          return;
-        }
-
-        setUser(currentUser);
-        setStatus("authenticated");
-      } catch (error) {
-        if (error.name !== "AbortError") {
-          setUser(null);
-          setStatus("error");
-        }
-      }
-    }
-
-    checkSession();
-
-    return () => controller.abort();
-  }, []);
-
-  if (status === "loading") {
+  if (loading) {
     return (
       <main className="container page-intro" aria-live="polite">
         <p className="eyebrow">LITTLE CLICK STUDIO</p>
@@ -123,24 +80,7 @@ function RequireRole({ allowedRoles }) {
     );
   }
 
-  if (status === "error") {
-    return (
-      <main className="container page-intro" role="alert">
-        <p className="eyebrow">CONNECTION UNAVAILABLE</p>
-        <h1 className="display-heading">We couldn't verify your session.</h1>
-
-        <p className="page-intro__description">
-          Please check that the authentication service is running and try again.
-        </p>
-
-        <Link className="text-link" to="/login">
-          Return to sign in ↗
-        </Link>
-      </main>
-    );
-  }
-
-  if (status !== "authenticated" || !user) {
+  if (!isAuthenticated || !user) {
     return <Navigate to="/login" replace />;
   }
 
@@ -196,22 +136,32 @@ function AuthLayout() {
 
 /* Customer and admin dashboard shell */
 function DashboardLayout({ type = "customer", links = customerLinks }) {
+  const { user, logout } = useAuth();
   const isAdmin = type === "admin";
+
+  const fullName = [user?.first_name, user?.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  const displayName = fullName || user?.email || "Your account";
 
   return (
     <div className="dashboard-layout">
       <header className="dashboard-header">
         <Link className="brand" to={isAdmin ? "/admin" : "/dashboard"}>
           <span className="brand__name">Little Click Studio</span>
-
           <span className="brand__location">
             {isAdmin ? "STUDIO MANAGEMENT" : "YOUR LITTLE MOMENTS"}
           </span>
         </Link>
 
-        <Link className="text-link" to="/">
-          Visit public website ↗
-        </Link>
+        <div className="dashboard-account">
+          <span className="dashboard-account__name">{displayName}</span>
+          <Link className="text-link" to="/">
+            Visit public website ↗
+          </Link>
+        </div>
       </header>
 
       <div className="dashboard-body">
@@ -219,15 +169,20 @@ function DashboardLayout({ type = "customer", links = customerLinks }) {
           className="dashboard-sidebar"
           aria-label={isAdmin ? "Admin navigation" : "Customer navigation"}
         >
+          <div className="dashboard-account dashboard-account--sidebar">
+            <strong className="dashboard-account__name">{displayName}</strong>
+            <span className="dashboard-account__email">{user?.email}</span>
+          </div>
+
           {links.map((item) => (
             <NavigationLink key={item.to} to={item.to} end={item.end}>
               {item.label}
             </NavigationLink>
           ))}
 
-          <Link to="/login" className="text-link">
-            Sign in page
-          </Link>
+          <button type="button" className="dashboard-logout" onClick={logout}>
+            Log out
+          </button>
         </aside>
 
         <main className="dashboard-main">
@@ -238,10 +193,7 @@ function DashboardLayout({ type = "customer", links = customerLinks }) {
   );
 }
 
-/* Public home page */
-function HomePage() {
-  return <HeroSection />;
-}
+
 
 /* Register page component */
 function RegisterPage() {
@@ -282,10 +234,10 @@ function CustomerRoutes() {
 
 /* ADMIN ROUTES — authorized staff roles only */
 function AdminRoutes() {
- // const adminRoles = ["admin", "staff", "superuser"];
+  const adminRoles = ["admin", "staff", "superuser"];
 
   return (
-   // <Route element={<RequireRole allowedRoles={adminRoles} />}>
+    <Route element={<RequireRole allowedRoles={adminRoles} />}>
       <Route path="admin" element={<AdminLayout />}>
         <Route index element={<AdminDashboard />} />
         <Route path="bookings" element={<AdminBookings />} />
@@ -296,7 +248,7 @@ function AdminRoutes() {
         <Route path="reviews" element={<AdminReviews />} />
         <Route path="settings" element={<AdminSettings />} />
       </Route>
-   // </Route>
+    </Route>
   );
 }
 

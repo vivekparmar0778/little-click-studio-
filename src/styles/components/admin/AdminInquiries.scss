@@ -1126,3 +1126,92 @@
     }
   }
 }
+
+/* Shared premium glass treatment for inquiry cards and overlays */
+.admin-inquiries__stat,
+.admin-inquiries__panel,
+.admin-inquiries__modal,
+.admin-inquiries__confirm {
+  border-color: color-mix(
+    in srgb,
+    var(--admin-color-accent) 18%,
+    transparent
+  );
+  background: color-mix(
+    in srgb,
+    var(--admin-color-surface) 82%,
+    transparent
+  );
+  box-shadow: var(--shadow-soft);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+/* API statuses */
+.admin-inquiries__badge--booked,
+.admin-inquiries__badge--closed {
+  color: var(--admin-color-accent);
+  background: color-mix(
+    in srgb,
+    var(--admin-color-accent) 12%,
+    var(--admin-color-surface)
+  );
+}
+
+/* Loading and pagination */
+.admin-inquiries__loading {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  color: var(--admin-color-text-muted);
+}
+
+.admin-inquiries__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--admin-space-3);
+}
+
+.admin-inquiries__pagination button {
+  min-height: 36px;
+  padding: 0 var(--admin-space-3);
+  border: 1px solid var(--admin-color-border);
+  border-radius: var(--admin-radius-sm);
+  background: var(--admin-color-surface);
+  color: var(--admin-color-text);
+  cursor: pointer;
+}
+
+.admin-inquiries__pagination button:hover:not(:disabled) {
+  border-color: var(--admin-color-accent);
+  background: var(--admin-color-hover);
+}
+
+.admin-inquiries__pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-inquiries__pagination span {
+  color: var(--admin-color-text-muted);
+  font-size: var(--admin-font-xs);
+}
+
+@media (max-width: 600px) {
+  .admin-inquiries__pagination {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .admin-inquiries__stat,
+  .admin-inquiries__panel,
+  .admin-inquiries__modal,
+  .admin-inquiries__confirm {
+    background: var(--admin-color-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}

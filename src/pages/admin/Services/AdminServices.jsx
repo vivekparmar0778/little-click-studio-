@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../../../context/AuthContext";
+import { createAdminServicesService } from "../../../services/adminServicesService";
 import {
   Camera,
   Check,
@@ -14,49 +16,7 @@ import {
   Save,
 } from "lucide-react";
 
-const initialServices = [
-  {
-    id: "SRV-001",
-    name: "Newborn Photography",
-    category: "Newborn",
-    price: 12999,
-    duration: "2–3 hours",
-    description:
-      "Gentle, timeless portraits capturing your newborn's earliest days.",
-    active: true,
-  },
-  {
-    id: "SRV-002",
-    name: "Maternity Portraits",
-    category: "Maternity",
-    price: 8999,
-    duration: "90 minutes",
-    description:
-      "Elegant maternity portraits celebrating the journey to motherhood.",
-    active: true,
-  },
-  {
-    id: "SRV-003",
-    name: "Baby Milestone Session",
-    category: "Baby",
-    price: 6999,
-    duration: "60–90 minutes",
-    description:
-      "Beautiful portraits for first smiles, sitting milestones and little celebrations.",
-    active: true,
-  },
-  {
-    id: "SRV-004",
-    name: "Family Portrait Session",
-    category: "Family",
-    price: 7999,
-    duration: "60 minutes",
-    description: "Natural family portraits filled with warmth and connection.",
-    active: false,
-  },
-];
-
-const categories = ["All", "Newborn", "Maternity", "Baby", "Family"];
+const categories = ["All", "Newborn", "Maternity", "Baby", "Family", "Other"];
 
 const emptyServiceForm = {
   name: "",
@@ -76,205 +36,169 @@ function formatPrice(price) {
 }
 
 export default function AdminServices() {
+  const { apiRequest } = useAuth();
+  const servicesApi = useMemo(() => createAdminServicesService(apiRequest), [apiRequest]);
+  const requestVersion = useRef(0);
+  const mounted = useRef(false);
   const [serviceToDelete, setServiceToDelete] = useState(null);
-  const [services, setServices] = useState(initialServices);
+  const [services, setServices] = useState([]);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
-
   const [selectedService, setSelectedService] = useState(null);
   const [notice, setNotice] = useState("");
-
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({ ...emptyServiceForm });
   const [formError, setFormError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
 
-  // Search and filter services.
+  const fetchServices = useCallback(async () => {
+    const records = [];
+    let currentPage = 1;
+    let total = Infinity;
+    while (records.length < total) {
+      const response = await servicesApi.list({ page: currentPage, page_size: 100 });
+      if (!Array.isArray(response?.results)) throw new Error("Invalid services response.");
+      records.push(...response.results);
+      total = Number(response.count);
+      if (!response.results.length || !response.next) break;
+      currentPage += 1;
+    }
+    return records.map((service) => ({
+      ...service,
+      category: service.category || "Other",
+      active: service.is_active,
+      duration: `${service.duration_minutes} minutes`,
+    }));
+  }, [servicesApi]);
+
+  const refreshServices = useCallback(async () => {
+    const version = ++requestVersion.current;
+    const records = await fetchServices();
+    if (mounted.current && version === requestVersion.current) setServices(records);
+  }, [fetchServices]);
+
+  useEffect(() => {
+    mounted.current = true;
+    let active = true;
+    const version = ++requestVersion.current;
+    fetchServices()
+      .then((records) => {
+        if (active && version === requestVersion.current) setServices(records);
+      })
+      .catch((error) => {
+        if (active) setNotice(error.message || "Unable to load services.");
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; mounted.current = false; };
+  }, [fetchServices]);
+
   const filteredServices = useMemo(() => {
     const query = search.trim().toLowerCase();
-
     return services.filter((service) => {
-      const matchesSearch = [
-        service.id,
-        service.name,
-        service.category,
-        service.description,
-      ].some((value) => value.toLowerCase().includes(query));
-
-      const matchesCategory =
-        category === "All" || service.category === category;
-
-      const matchesStatus =
-        statusFilter === "All" ||
-        (statusFilter === "Active" && service.active) ||
-        (statusFilter === "Inactive" && !service.active);
-
-      return matchesSearch && matchesCategory && matchesStatus;
+      const matchesSearch = [service.id, service.name, service.category, service.description]
+        .some((value) => String(value ?? "").toLowerCase().includes(query));
+      return matchesSearch && (category === "All" || service.category === category)
+        && (statusFilter === "All" || (statusFilter === "Active" ? service.active : !service.active));
     });
   }, [services, search, category, statusFilter]);
-
   const activeCount = services.filter((service) => service.active).length;
   const inactiveCount = services.length - activeCount;
-  const categoryCount = new Set(services.map((service) => service.category))
-    .size;
+  const categoryCount = new Set(services.map((service) => service.category)).size;
 
-  // Open a blank form to create a service.
   function openAddForm() {
     setEditingId(null);
     setFormData({ ...emptyServiceForm });
     setFormError("");
+    setSelectedService(null);
     setIsFormOpen(true);
   }
-
-  // Open the form with the existing service data.
   function openEditForm(service) {
     setEditingId(service.id);
-
-    setFormData({
-      name: service.name,
-      category: service.category,
-      price: String(service.price),
-      duration: service.duration,
-      description: service.description,
-      active: service.active,
-    });
-
+    setFormData({ name: service.name, category: service.category, price: String(service.price),
+      duration: String(service.duration_minutes), description: service.description, active: service.active });
+    setSelectedService(null);
     setFormError("");
     setIsFormOpen(true);
   }
-
   function closeForm() {
+    if (busyRef.current) return;
     setIsFormOpen(false);
     setEditingId(null);
     setFormData({ ...emptyServiceForm });
     setFormError("");
   }
-
   function handleFormChange(event) {
     const { name, value } = event.target;
-
-    setFormData((current) => ({
-      ...current,
-      [name]: value,
-    }));
+    setFormData((current) => ({ ...current, [name]: value }));
   }
-
-  // Create or update a service.
-  function handleSaveService(event) {
+  async function handleSaveService(event) {
     event.preventDefault();
-    setFormError("");
-
+    if (busyRef.current) return;
     const price = Number(formData.price);
-
-    if (
-      !formData.name.trim() ||
-      !formData.duration.trim() ||
-      !formData.description.trim() ||
-      formData.price.trim() === "" ||
-      !Number.isFinite(price) ||
-      price <= 0
-    ) {
-      setFormError(
-        "Fill in all fields and enter a valid price greater than zero.",
-      );
+    const duration = Number(formData.duration);
+    if (!formData.name.trim() || !formData.description.trim() || formData.price.trim() === ""
+      || !Number.isFinite(price) || price < 0 || !Number.isInteger(duration) || duration < 1) {
+      setFormError("Enter a name, description, non-negative price and duration in whole minutes.");
       return;
     }
-
-    const duplicateName = services.some(
-      (service) =>
-        service.name.trim().toLowerCase() ===
-          formData.name.trim().toLowerCase() && service.id !== editingId,
-    );
-
-    if (duplicateName) {
-      setFormError("A service with this name already exists.");
+    const payload = { name: formData.name.trim(), category: formData.category,
+      price: price.toFixed(2), duration_minutes: duration,
+      description: formData.description.trim(), is_active: formData.active };
+    busyRef.current = true;
+    setBusy(true);
+    setFormError("");
+    try {
+      if (editingId !== null) await servicesApi.update(editingId, payload);
+      else await servicesApi.create(payload);
+    } catch (error) {
+      setFormError(error.message || "Unable to save service.");
+      busyRef.current = false;
+      setBusy(false);
       return;
     }
-
-    const serviceData = {
-      name: formData.name.trim(),
-      category: formData.category,
-      price,
-      duration: formData.duration.trim(),
-      description: formData.description.trim(),
-      active: formData.active,
-    };
-
-    if (editingId) {
-      setServices((current) =>
-        current.map((service) =>
-          service.id === editingId ? { ...service, ...serviceData } : service,
-        ),
-      );
-
-      setSelectedService((current) =>
-        current?.id === editingId ? { ...current, ...serviceData } : current,
-      );
-
-      setNotice("Service updated successfully.");
-    } else {
-      const newService = {
-        ...serviceData,
-        id: `SRV-${Date.now()}`,
-      };
-
-      setServices((current) => [...current, newService]);
-      setNotice("New service added successfully.");
-    }
-
-    closeForm();
+    setIsFormOpen(false);
+    setEditingId(null);
+    setNotice("Service saved successfully.");
+    try { await refreshServices(); }
+    catch (error) { setNotice(`Service saved, but the list could not refresh: ${error.message}`); }
+    finally { busyRef.current = false; setBusy(false); }
   }
-
-  // Activate or deactivate a service.
-  function toggleService(id) {
+  async function toggleService(id) {
+    if (busyRef.current) return;
     const service = services.find((item) => item.id === id);
-
     if (!service) return;
-
-    const nextActive = !service.active;
-
-    setServices((current) =>
-      current.map((item) =>
-        item.id === id ? { ...item, active: nextActive } : item,
-      ),
-    );
-
-    setSelectedService((current) =>
-      current?.id === id ? { ...current, active: nextActive } : current,
-    );
-
-    setNotice(`${service.name} marked ${nextActive ? "active" : "inactive"}.`);
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await servicesApi.update(id, { is_active: !service.active });
+      setServices((current) => current.map((item) => item.id === id ? { ...item, active: !service.active, is_active: !service.active } : item));
+      setSelectedService((current) => current?.id === id ? { ...current, active: !service.active } : current);
+      setNotice(`${service.name} marked ${service.active ? "inactive" : "active"}.`);
+    } catch (error) { setNotice(error.message || "Unable to change service status."); }
+    finally { busyRef.current = false; setBusy(false); }
   }
-
-  // Delete a service after confirmation.
-  function deleteService(service) {
-    setServiceToDelete(service);
+  function deleteService(service) { setServiceToDelete(service); }
+  async function confirmDeleteService() {
+    if (!serviceToDelete || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    const service = serviceToDelete;
+    try {
+      await servicesApi.remove(service.id);
+      setServices((current) => current.filter((item) => item.id !== service.id));
+      setSelectedService((current) => current?.id === service.id ? null : current);
+      setServiceToDelete(null);
+      setNotice(`${service.name} deleted successfully.`);
+    } catch (error) {
+      setServiceToDelete(null);
+      setNotice(error.message || "Unable to delete service.");
+    } finally { busyRef.current = false; setBusy(false); }
   }
-
-  function confirmDeleteService() {
-    if (!serviceToDelete) return;
-
-    const serviceId = serviceToDelete.id;
-    const serviceName = serviceToDelete.name;
-
-    setServices((current) =>
-      current.filter((service) => service.id !== serviceId),
-    );
-
-    setSelectedService((current) =>
-      current?.id === serviceId ? null : current,
-    );
-
-    setServiceToDelete(null);
-    setNotice(`${serviceName} deleted successfully.`);
-  }
-
-  function clearFilters() {
-    setSearch("");
-    setCategory("All");
-    setStatusFilter("All");
-  }
+  function clearFilters() { setSearch(""); setCategory("All"); setStatusFilter("All"); }
 
   return (
     <section className="admin-services">
@@ -403,6 +327,8 @@ export default function AdminServices() {
           </div>
         )}
 
+        {loading && <p role="status">Loading services...</p>}
+
         {/* Table */}
         <div className="admin-services__table-wrap">
           <table className="admin-services__table">
@@ -476,6 +402,7 @@ export default function AdminServices() {
                       <button
                         type="button"
                         className="admin-services__icon-button"
+                        disabled={busy}
                         onClick={() => toggleService(service.id)}
                         aria-label={`${
                           service.active ? "Deactivate" : "Activate"
@@ -496,6 +423,7 @@ export default function AdminServices() {
                       <button
                         type="button"
                         className="admin-services__icon-button"
+                        disabled={busy}
                         onClick={() => deleteService(service)}
                         aria-label={`Delete ${service.name}`}
                         title="Delete service"
@@ -509,7 +437,7 @@ export default function AdminServices() {
             </tbody>
           </table>
 
-          {filteredServices.length === 0 && (
+          {!loading && filteredServices.length === 0 && (
             <div className="admin-services__empty">
               <Search size={24} aria-hidden="true" />
               <h3>No services found</h3>
@@ -651,7 +579,7 @@ export default function AdminServices() {
                   value={formData.name}
                   onChange={handleFormChange}
                   placeholder="e.g. Newborn Photography"
-                  maxLength={100}
+                  maxLength={150}
                   required
                 />
               </label>
@@ -682,20 +610,22 @@ export default function AdminServices() {
                   value={formData.price}
                   onChange={handleFormChange}
                   placeholder="12999"
-                  min="1"
-                  step="1"
+                  min="0"
+                  step="0.01"
                   required
                 />
               </label>
 
               <label>
-                Session duration
+                Session duration (minutes)
                 <input
                   name="duration"
                   value={formData.duration}
                   onChange={handleFormChange}
-                  placeholder="e.g. 2–3 hours"
-                  maxLength={60}
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="e.g. 120"
                   required
                 />
               </label>
@@ -744,10 +674,11 @@ export default function AdminServices() {
 
                 <button
                   type="submit"
+                  disabled={busy}
                   className="admin-services__action admin-services__action--primary"
                 >
                   <Save size={16} />
-                  {editingId ? "Save changes" : "Create service"}
+                  {busy ? "Saving..." : editingId ? "Save changes" : "Create service"}
                 </button>
               </div>
             </form>
@@ -825,6 +756,7 @@ export default function AdminServices() {
                       type="button"
                       className="admin-services__confirm-delete"
                       onClick={confirmDeleteService}
+                      disabled={busy}
                     >
                       <Trash2 size={17} />
                       Delete service

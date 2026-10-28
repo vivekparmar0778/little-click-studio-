@@ -1,531 +1,923 @@
-
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ArrowDownLeft,
-  ArrowDownToLine,
   ArrowLeft,
-  ArrowUpRight,
-  
+  ArrowRight,
   CheckCircle2,
-  ChevronDown,
   Clock3,
   CreditCard,
-  FileText,
-  Filter,
-  LockKeyhole,
   ReceiptText,
-  Search,
+  RefreshCw,
   ShieldCheck,
-  Sparkles,
   X,
 } from "lucide-react";
 
-const paymentRecords = [
-  {
-    id: "INV-2026-1024",
-    bookingId: "LCS-1024",
-    service: "Newborn Photography",
-    date: "14 Nov 2026",
-    amount: 8500,
-    paid: 8500,
-    status: "Paid",
-    method: "UPI",
-    reference: "DEMO-UPI-1024",
-  },
-  {
-    id: "INV-2026-1025",
-    bookingId: "LCS-1025",
-    service: "Maternity Portraits",
-    date: "22 Nov 2026",
-    amount: 12000,
-    paid: 4000,
-    status: "Partial",
-    method: "UPI",
-    reference: "DEMO-UPI-1025",
-  },
-  {
-    id: "INV-2026-1018",
-    bookingId: "LCS-1018",
-    service: "Baby Milestone Session",
-    date: "12 Aug 2026",
-    amount: 6500,
-    paid: 6500,
-    status: "Paid",
-    method: "Card",
-    reference: "DEMO-CARD-1018",
-  },
-  {
-    id: "INV-2026-1012",
-    bookingId: "LCS-1012",
-    service: "Family Portrait Session",
-    date: "02 Jul 2026",
-    amount: 9000,
-    paid: 0,
-    status: "Pending",
-    method: "—",
-    reference: "Not available",
-  },
-];
+import { useAuth } from "../../../context/AuthContext";
 
-const formatCurrency = (amount) =>
+const money = (value) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(amount);
+    minimumFractionDigits: 2,
+  }).format(Number(value || 0));
 
-function PaymentStatus({ status }) {
-  const icon =
-    status === "Paid" ? (
-      <CheckCircle2 size={14} />
-    ) : status === "Partial" ? (
-      <Clock3 size={14} />
-    ) : (
-      <Clock3 size={14} />
-    );
+const dateLabel = (value) =>
+  value
+    ? new Date(value).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : "—";
+
+const requestKeyName = (userId, environment, billingId) =>
+  `lcs_payment_request:${userId}:${environment}:${billingId}`;
+
+let checkoutLoader = null;
+
+function loadCheckout() {
+  if (window.Razorpay) return Promise.resolve();
+
+  if (!checkoutLoader) {
+    checkoutLoader = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      let timer;
+
+      function fail() {
+        clearTimeout(timer);
+        script.remove();
+        reject(new Error("Unable to load payment checkout. Please try again."));
+      }
+
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onerror = fail;
+      script.onload = () => {
+        clearTimeout(timer);
+
+        if (window.Razorpay) {
+          resolve();
+        } else {
+          fail();
+        }
+      };
+
+      timer = window.setTimeout(fail, 20000);
+      document.head.appendChild(script);
+    }).catch((error) => {
+      checkoutLoader = null;
+      throw error;
+    });
+  }
+
+  return checkoutLoader;
+}
+
+function Status({ value }) {
+  const label = {
+    unpaid: "Unpaid",
+    partial: "Part paid",
+    paid: "Paid",
+    void: "Void",
+    created: "Created",
+    pending: "Pending",
+    succeeded: "Succeeded",
+    failed: "Failed",
+  }[value] || value;
 
   return (
     <span
-      className={`customer-payments__status customer-payments__status--${status.toLowerCase()}`}
+      className={`customer-payments__status customer-payments__status--${value}`}
     >
-      {icon}
-      {status === "Partial" ? "Part paid" : status}
+      {["paid", "succeeded"].includes(value) ? (
+        <CheckCircle2 size={14} />
+      ) : (
+        <Clock3 size={14} />
+      )}
+      {label}
     </span>
   );
 }
 
-function InvoiceModal({ invoice, onClose }) {
-  if (!invoice) return null;
+function PaymentDialog({ children, close }) {
+  const ref = useRef(null);
+  const opener = useRef(null);
 
-  const balance = invoice.amount - invoice.paid;
+  useEffect(() => {
+    if (!opener.current) opener.current = document.activeElement;
+
+    const dialog = ref.current;
+    const previousOverflow = document.body.style.overflow;
+
+    if (!dialog.open) dialog.showModal();
+
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (opener.current?.isConnected) opener.current.focus();
+    };
+  }, []);
 
   return (
-    <div
-      className="customer-payments__modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+    <dialog
+      ref={ref}
+      className="customer-payments__dialog"
+      aria-label="Billing details"
+      onCancel={close}
+      onClose={close}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) close();
       }}
     >
-      <section
-        className="customer-payments__invoice-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="invoice-modal-title"
-      >
+      <div className="customer-payments__dialog-content">
         <div className="customer-payments__modal-top">
-          <div className="customer-payments__modal-icon">
-            <ReceiptText size={22} />
-          </div>
+          <ReceiptText size={24} aria-hidden="true" />
+
           <button
             type="button"
             className="customer-payments__icon-button"
-            onClick={onClose}
-            aria-label="Close invoice preview"
+            onClick={close}
+            aria-label="Close billing details"
           >
-            <X size={19} />
+            <X size={20} />
           </button>
         </div>
 
-        <p className="customer-payments__eyebrow">INVOICE PREVIEW</p>
-        <h2 id="invoice-modal-title">{invoice.id}</h2>
-        <p className="customer-payments__modal-description">
-          A preview of your studio billing record.
-        </p>
-
-        <div className="customer-payments__invoice-brand">
-          <div>
-            <span className="customer-payments__brand-mark">LC</span>
-            <strong>Little Click Studio</strong>
-          </div>
-          <span>South Bopal · Ahmedabad</span>
-        </div>
-
-        <div className="customer-payments__invoice-lines">
-          <div>
-            <span>Service</span>
-            <strong>{invoice.service}</strong>
-          </div>
-          <div>
-            <span>Booking reference</span>
-            <strong>{invoice.bookingId}</strong>
-          </div>
-          <div>
-            <span>Session date</span>
-            <strong>{invoice.date}</strong>
-          </div>
-          <div>
-            <span>Invoice total</span>
-            <strong>{formatCurrency(invoice.amount)}</strong>
-          </div>
-          <div>
-            <span>Amount paid</span>
-            <strong>{formatCurrency(invoice.paid)}</strong>
-          </div>
-          <div className="customer-payments__invoice-balance">
-            <span>Outstanding balance</span>
-            <strong>{formatCurrency(balance)}</strong>
-          </div>
-        </div>
-
-        <div className="customer-payments__demo-notice">
-          <ShieldCheck size={17} />
-          <p>
-            Demonstration record only. This preview is not a tax invoice or
-            proof of payment.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          className="customer-payments__button customer-payments__button--dark"
-          onClick={() => window.print()}
-        >
-          <FileText size={17} />
-          Print preview
-        </button>
-      </section>
-    </div>
+        {children}
+      </div>
+    </dialog>
   );
 }
 
 export default function Payments() {
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("All");
-  const [selectedInvoice, setSelectedInvoice] = useState(null);
-  const [sortNewest, setSortNewest] = useState(true);
+  const { user, apiRequest } = useAuth();
 
-  const summary = useMemo(() => {
-    return paymentRecords.reduce(
-      (totals, record) => {
-        totals.total += record.amount;
-        totals.paid += record.paid;
-        totals.balance += record.amount - record.paid;
-        return totals;
-      },
-      { total: 0, paid: 0, balance: 0 }
-    );
+  const [data, setData] = useState(null);
+  const [page, setPage] = useState(1);
+  const [reload, setReload] = useState(0);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState(null);
+
+  const [bookingData, setBookingData] = useState(null);
+  const [bookingPage, setBookingPage] = useState(1);
+  const [bookingLoading, setBookingLoading] = useState(false);
+
+  const [bill, setBill] = useState(null);
+  const [billLoading, setBillLoading] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const alive = useRef(false);
+  const operation = useRef(false);
+  const checkout = useRef(null);
+
+  useEffect(() => {
+    alive.current = true;
+
+    return () => {
+      alive.current = false;
+      checkout.current?.close();
+    };
   }, []);
 
-  const filteredRecords = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  useEffect(() => {
+    let active = true;
 
-    return paymentRecords
-      .filter((record) => {
-        const matchesSearch = [
-          record.id,
-          record.bookingId,
-          record.service,
-          record.status,
-          record.method,
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(query);
+    Promise.all([
+      apiRequest("payments/configuration/"),
+      apiRequest("payments/summary/"),
+      apiRequest(`payments/billing/?page=${page}`),
+    ])
+      .then(([configuration, summary, records]) => {
+        if (!Array.isArray(records.results)) {
+          throw new Error("Invalid billing response.");
+        }
 
-        const matchesFilter =
-          filter === "All" ||
-          (filter === "Paid" && record.status === "Paid") ||
-          (filter === "Outstanding" && record.amount > record.paid);
-
-        return matchesSearch && matchesFilter;
+        if (active) setData({ configuration, summary, records });
       })
-      .sort((a, b) => {
-        const aIndex = paymentRecords.indexOf(a);
-        const bIndex = paymentRecords.indexOf(b);
-        return sortNewest ? aIndex - bIndex : bIndex - aIndex;
+      .catch((err) => {
+        if (active) setError(err.message);
       });
-  }, [search, filter, sortNewest]);
+
+    return () => {
+      active = false;
+    };
+  }, [apiRequest, page, reload]);
+
+  function refreshPage(nextPage = page) {
+    setData(null);
+    setError("");
+    setPage(nextPage);
+    setReload((value) => value + 1);
+  }
+
+  function showNotice(text, isError = false) {
+    setNotice({ text, isError });
+  }
+
+  async function loadBookings(nextPage = 1) {
+    if (operation.current) return;
+
+    operation.current = true;
+    setBookingLoading(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(`bookings/?page=${nextPage}`);
+
+      if (!Array.isArray(result.results)) {
+        throw new Error("Invalid booking response.");
+      }
+
+      if (!alive.current) return;
+
+      setBookingData(result);
+      setBookingPage(nextPage);
+    } catch (err) {
+      if (alive.current) showNotice(err.message, true);
+    } finally {
+      operation.current = false;
+      if (alive.current) setBookingLoading(false);
+    }
+  }
+
+  async function openBill(id) {
+    if (operation.current) return;
+
+    operation.current = true;
+    setBillLoading(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(`payments/billing/${id}/`);
+
+      if (!alive.current) return;
+
+      setBill(result);
+      setAmount(result.summary.balance_due);
+    } catch (err) {
+      if (alive.current) showNotice(err.message, true);
+    } finally {
+      operation.current = false;
+      if (alive.current) setBillLoading(false);
+    }
+  }
+
+  async function prepareBilling(bookingId) {
+    if (operation.current) return;
+
+    operation.current = true;
+    setBusy(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(
+        `payments/billing/booking/${bookingId}/`,
+        { method: "POST" },
+      );
+
+      if (!alive.current) return;
+
+      setBill(result.billing_record);
+      setAmount(result.billing_record.summary.balance_due);
+      refreshPage(1);
+    } catch (err) {
+      if (alive.current) showNotice(err.message, true);
+    } finally {
+      operation.current = false;
+      if (alive.current) setBusy(false);
+    }
+  }
+
+  async function reloadBill(id) {
+    const result = await apiRequest(`payments/billing/${id}/`);
+
+    if (alive.current) {
+      setBill((current) => (current?.id === id ? result : current));
+      refreshPage();
+    }
+
+    return result;
+  }
+
+  async function checkPayment(paymentId) {
+    if (operation.current || !bill) return;
+
+    operation.current = true;
+    setBusy(true);
+    setNotice(null);
+
+    const billingId = bill.id;
+
+    try {
+      const result = await apiRequest(
+        `payments/${paymentId}/reconcile/`,
+        { method: "POST" },
+      );
+
+      if (!alive.current) return;
+
+      await reloadBill(billingId);
+
+      if (alive.current) showNotice(result.message);
+    } catch (err) {
+      if (alive.current) showNotice(err.message, true);
+    } finally {
+      operation.current = false;
+      if (alive.current) setBusy(false);
+    }
+  }
+
+  async function startPayment(event) {
+    event.preventDefault();
+
+    if (operation.current || !bill || !data) return;
+
+    if (
+      !/^\d+(\.\d{1,2})?$/.test(amount) ||
+      Number(amount) <= 0 ||
+      Number(amount) > Number(bill.summary.balance_due)
+    ) {
+      showNotice("Enter a valid amount within your outstanding balance.", true);
+      return;
+    }
+
+    operation.current = true;
+    setBusy(true);
+    setNotice(null);
+
+    const billingId = bill.id;
+    const environment = bill.environment;
+    const storageKey = requestKeyName(user.id, environment, billingId);
+
+    function finish() {
+      operation.current = false;
+      checkout.current = null;
+      if (alive.current) setBusy(false);
+    }
+
+    try {
+      await loadCheckout();
+
+      if (!alive.current) {
+        finish();
+        return;
+      }
+
+      const unresolved = bill.payments.find(
+        (payment) =>
+          payment.source === "razorpay" &&
+          ["created", "pending"].includes(payment.status),
+      );
+
+      let saved = null;
+
+      try {
+        saved = JSON.parse(sessionStorage.getItem(storageKey) || "null");
+      } catch {
+        sessionStorage.removeItem(storageKey);
+      }
+
+      if (unresolved && saved?.paymentId !== unresolved.id) {
+        throw new Error(
+          "An earlier payment is unresolved. Use Check status or contact the studio before paying again.",
+        );
+      }
+
+      const requestedAmount = unresolved ? unresolved.amount : amount;
+
+      if (!saved || saved.amount !== requestedAmount) {
+        saved = {
+          key: crypto.randomUUID(),
+          amount: requestedAmount,
+          paymentId: null,
+        };
+        sessionStorage.setItem(storageKey, JSON.stringify(saved));
+      }
+
+      const order = await apiRequest(
+        `payments/billing/${billingId}/orders/`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            amount: requestedAmount,
+            idempotency_key: saved.key,
+          }),
+        },
+      );
+
+      saved.paymentId = order.payment_id;
+      sessionStorage.setItem(storageKey, JSON.stringify(saved));
+
+      if (!alive.current) {
+        finish();
+        return;
+      }
+
+      let verifying = false;
+
+      const instance = new window.Razorpay({
+        key: order.key_id,
+        order_id: order.order_id,
+        amount: order.amount,
+        currency: order.currency,
+        name: "Little Click Studio",
+        description: order.service_name,
+        prefill: {
+          name: [user.first_name, user.last_name].filter(Boolean).join(" "),
+          email: user.email,
+          contact: user.phone_number || "",
+        },
+        theme: { color: "#7d5f33" },
+
+        handler: async (response) => {
+          verifying = true;
+
+          try {
+            const result = await apiRequest(
+              `payments/${order.payment_id}/verify/`,
+              {
+                method: "POST",
+                body: JSON.stringify(response),
+              },
+            );
+
+            if (result.verification_status === "succeeded") {
+              sessionStorage.removeItem(storageKey);
+            }
+
+            if (alive.current) {
+              await reloadBill(billingId);
+              showNotice(result.message);
+            }
+          } catch (err) {
+            if (alive.current) {
+              showNotice(
+                `${err.message} Use Check status before making another payment.`,
+                true,
+              );
+              await reloadBill(billingId).catch(() => {});
+            }
+          } finally {
+            finish();
+          }
+        },
+
+        modal: {
+          ondismiss: () => {
+            if (verifying) return;
+
+            if (alive.current) {
+              showNotice(
+                "Checkout closed. Check the payment status before starting another payment.",
+              );
+              void reloadBill(billingId).catch(() => {});
+            }
+
+            finish();
+          },
+        },
+      });
+
+      instance.on("payment.failed", () => {
+        if (alive.current) {
+          showNotice(
+            "The payment attempt was unsuccessful. Close checkout and check its status before paying again.",
+            true,
+          );
+        }
+      });
+
+      // Close the native bill dialog before opening gateway checkout.
+      setBill(null);
+      checkout.current = instance;
+      instance.open();
+    } catch (err) {
+      if (alive.current) {
+        showNotice(err.message, true);
+        refreshPage();
+      }
+
+      finish();
+    }
+  }
+
+  const eligibleBookings = bookingData?.results.filter((booking) =>
+    ["confirmed", "completed"].includes(booking.status),
+  ) || [];
 
   return (
-    <main className="customer-payments">
-      <div className="customer-payments__ambient" aria-hidden="true" />
-
+    <div className="customer-payments">
       <header className="customer-payments__header">
         <div>
-          <Link
-            to="/dashboard"
-            className="customer-payments__back-link"
-          >
-            <ArrowLeft size={15} />
-            Back to overview
+          <Link to="/dashboard" className="customer-payments__back-link">
+            <ArrowLeft size={15} /> Back to overview
           </Link>
 
-          <p className="customer-payments__eyebrow">
-            YOUR ACCOUNT · BILLING
-          </p>
-
-          <h1>
-            Every moment,
-            <br />
-            <em>accounted for.</em>
-          </h1>
+          <p className="customer-payments__eyebrow">YOUR ACCOUNT · BILLING</p>
+          <h1>Every moment,<br /><em>accounted for.</em></h1>
 
           <p className="customer-payments__intro">
-            A clear view of your session invoices, payments and remaining
-            balances — all in one place.
+            View your billing records, verified payments and remaining balance.
           </p>
         </div>
 
-        <div className="customer-payments__header-art" aria-hidden="true">
-          <div className="customer-payments__art-ring customer-payments__art-ring--one" />
-          <div className="customer-payments__art-ring customer-payments__art-ring--two" />
-          <div className="customer-payments__art-center">
-            <ReceiptText size={34} strokeWidth={1.1} />
-          </div>
-          <Sparkles
-            className="customer-payments__art-sparkle"
-            size={20}
-          />
-          <span className="customer-payments__art-caption">
-            LITTLE MOMENTS
-          </span>
-        </div>
+        <ReceiptText
+          className="customer-payments__header-symbol"
+          size={76}
+          strokeWidth={1}
+          aria-hidden="true"
+        />
       </header>
 
-      <div className="customer-payments__demo-banner">
-        <span className="customer-payments__demo-banner-icon">
-          <LockKeyhole size={17} />
-        </span>
-        <div>
-          <strong>Preview billing data</strong>
-          <p>
-            These are sample records for development. They do not represent
-            verified payments or live account balances.
-          </p>
-        </div>
-      </div>
+      {notice && (
+        <p
+          className={`customer-payments__notice ${
+            notice.isError ? "customer-payments__notice--error" : ""
+          }`}
+          role={notice.isError ? "alert" : "status"}
+        >
+          {notice.text}
+        </p>
+      )}
 
-      <section
-        className="customer-payments__summary"
-        aria-label="Payment summary"
-      >
-        <article className="customer-payments__summary-card customer-payments__summary-card--featured">
-          <div className="customer-payments__summary-top">
-            <span>Total billed</span>
-            <span className="customer-payments__summary-icon">
-              <ReceiptText size={18} />
-            </span>
-          </div>
-          <strong>{formatCurrency(summary.total)}</strong>
-          <p>Across all sample invoices</p>
-          <div className="customer-payments__summary-foot">
-            <span>INR</span>
-            <span>All sessions</span>
-          </div>
-        </article>
-
-        <article className="customer-payments__summary-card">
-          <div className="customer-payments__summary-top">
-            <span>Total paid</span>
-            <span className="customer-payments__summary-icon">
-              <ArrowDownLeft size={18} />
-            </span>
-          </div>
-          <strong>{formatCurrency(summary.paid)}</strong>
-          <p>Sample recorded payments</p>
-          <div className="customer-payments__progress">
-            <span
-              style={{
-                width: `${summary.total ? (summary.paid / summary.total) * 100 : 0}%`,
-              }}
-            />
-          </div>
-        </article>
-
-        <article className="customer-payments__summary-card">
-          <div className="customer-payments__summary-top">
-            <span>Balance due</span>
-            <span className="customer-payments__summary-icon">
-              <Clock3 size={18} />
-            </span>
-          </div>
-          <strong>{formatCurrency(summary.balance)}</strong>
-          <p>Unpaid or partially paid samples</p>
-          <div className="customer-payments__summary-foot">
-            <span className="customer-payments__balance-dot" />
-            <span>Review individual invoices</span>
-          </div>
-        </article>
-      </section>
-
-      <section className="customer-payments__content">
-        <div className="customer-payments__section-heading">
-          <div>
-            <p className="customer-payments__eyebrow">BILLING HISTORY</p>
-            <h2>Your invoices</h2>
-            <p>Find a session, check its status or preview the invoice.</p>
-          </div>
-
-          <span className="customer-payments__record-count">
-            {filteredRecords.length}{" "}
-            {filteredRecords.length === 1 ? "record" : "records"}
-          </span>
-        </div>
-
-        <div className="customer-payments__toolbar">
-          <label className="customer-payments__search">
-            <Search size={18} />
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search invoices or sessions..."
-              aria-label="Search invoices"
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                aria-label="Clear search"
-              >
-                <X size={15} />
-              </button>
-            )}
-          </label>
-
-          <label className="customer-payments__filter">
-            <Filter size={16} />
-            <select
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              aria-label="Filter payments"
-            >
-              <option value="All">All invoices</option>
-              <option value="Paid">Paid</option>
-              <option value="Outstanding">Outstanding</option>
-            </select>
-            <ChevronDown size={15} />
-          </label>
-
+      {error ? (
+        <section className="customer-payments__empty">
+          <p role="alert">{error}</p>
           <button
             type="button"
-            className="customer-payments__sort"
-            onClick={() => setSortNewest((current) => !current)}
+            className="customer-payments__button"
+            onClick={() => refreshPage()}
           >
-            {sortNewest ? (
-              <ArrowDownToLine size={16} />
-            ) : (
-              <ArrowUpRight size={16} />
-            )}
-            {sortNewest ? "Default order" : "Reverse order"}
+            Retry
           </button>
-        </div>
+        </section>
+      ) : !data ? (
+        <p role="status">Loading your billing records…</p>
+      ) : (
+        <>
+          {data.configuration.environment === "test" && (
+            <div className="customer-payments__mode-banner" role="note">
+              <ShieldCheck size={20} />
+              <div>
+                <strong>Test environment</strong>
+                <p>
+                  Online payments here are simulated. These records do not
+                  represent real customer payments.
+                </p>
+              </div>
+            </div>
+          )}
 
-        <div className="customer-payments__table-wrap">
-          <table className="customer-payments__table">
-            <thead>
-              <tr>
-                <th scope="col">Invoice / Service</th>
-                <th scope="col">Session date</th>
-                <th scope="col">Amount</th>
-                <th scope="col">Status</th>
-                <th scope="col">Balance</th>
-                <th scope="col">
-                  <span className="customer-payments__sr-only">
-                    Invoice actions
-                  </span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRecords.map((record) => (
-                <tr key={record.id}>
-                  <td>
-                    <div className="customer-payments__invoice-cell">
-                      <span className="customer-payments__invoice-icon">
-                        <FileText size={18} />
-                      </span>
-                      <div>
-                        <strong>{record.id}</strong>
-                        <span>{record.service}</span>
-                        <small>{record.bookingId}</small>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="customer-payments__date-cell">
-                    {record.date}
-                  </td>
-                  <td className="customer-payments__amount-cell">
-                    {formatCurrency(record.amount)}
-                    <span>INR</span>
-                  </td>
-                  <td>
-                    <PaymentStatus status={record.status} />
-                  </td>
-                  <td className="customer-payments__balance-cell">
-                    {formatCurrency(record.amount - record.paid)}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="customer-payments__view-button"
-                      onClick={() => setSelectedInvoice(record)}
-                    >
-                      View
-                      <ArrowUpRight size={15} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <section
+            className="customer-payments__summary"
+            aria-label="Billing summary"
+          >
+            {[
+              ["Total billed", data.summary.total_billed],
+              ["Net paid", data.summary.net_paid],
+              ["Balance due", data.summary.balance_due],
+            ].map(([label, value]) => (
+              <article
+                className="customer-payments__summary-card"
+                key={label}
+              >
+                <span>{label}</span>
+                <strong>{money(value)}</strong>
+                <p>
+                  {data.configuration.environment === "test"
+                    ? "Test records only"
+                    : "Your billing records"}
+                </p>
+              </article>
+            ))}
+          </section>
 
-          {filteredRecords.length === 0 && (
-            <div className="customer-payments__empty">
-              <Search size={27} />
-              <h3>No matching invoices</h3>
-              <p>Try a different search term or change the filter.</p>
+          <section className="customer-payments__content">
+            <div className="customer-payments__section-heading">
+              <div>
+                <p className="customer-payments__eyebrow">BILLING HISTORY</p>
+                <h2>Your billing records</h2>
+                <p>
+                  Refunded: {money(data.summary.total_refunded)}
+                  {" · "}Credit: {money(data.summary.credit_balance)}
+                </p>
+              </div>
+
               <button
                 type="button"
                 className="customer-payments__button"
-                onClick={() => {
-                  setSearch("");
-                  setFilter("All");
-                }}
+                disabled={busy}
+                onClick={() => refreshPage()}
               >
-                Clear filters
+                <RefreshCw size={15} /> Refresh
               </button>
             </div>
-          )}
-        </div>
-      </section>
 
-      <section className="customer-payments__help">
-        <div className="customer-payments__help-icon">
-          <CreditCard size={22} />
-        </div>
-        <div className="customer-payments__help-copy">
-          <p className="customer-payments__eyebrow">NEED A HAND?</p>
-          <h2>Questions about a payment?</h2>
-          <p>
-            If something doesn’t look right, contact the studio before making
-            another payment.
-          </p>
-        </div>
-        <Link
-          to="/contact"
-          className="customer-payments__button customer-payments__button--dark"
-        >
-          Contact the studio
-          <ArrowUpRight size={16} />
-        </Link>
-      </section>
+            {data.records.results.length === 0 ? (
+              <div className="customer-payments__empty">
+                <ReceiptText size={28} />
+                <h3>No billing records yet.</h3>
+                <p>
+                  Billing can be prepared after the studio confirms your booking.
+                </p>
+              </div>
+            ) : (
+              <div className="customer-payments__table-wrap">
+                <table className="customer-payments__table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Service</th>
+                      <th scope="col">Total</th>
+                      <th scope="col">Net paid</th>
+                      <th scope="col">Balance</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Details</th>
+                    </tr>
+                  </thead>
 
-      <footer className="customer-payments__footer">
-        <span>
-          <ShieldCheck size={15} />
-          Your account, treated with care.
-        </span>
-        <span>Little Click Studio · South Bopal</span>
-      </footer>
+                  <tbody>
+                    {data.records.results.map((record) => (
+                      <tr key={record.id}>
+                        <td>
+                          <strong>{record.service_name}</strong>
+                          <small className="customer-payments__reference">
+                            {record.id}
+                          </small>
+                        </td>
+                        <td>{money(record.summary.total_amount)}</td>
+                        <td>{money(record.summary.net_paid)}</td>
+                        <td>{money(record.summary.balance_due)}</td>
+                        <td>
+                          <Status value={record.summary.payment_status} />
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="customer-payments__button"
+                            disabled={busy || billLoading}
+                            onClick={() => openBill(record.id)}
+                          >
+                            View <ArrowRight size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
-      {selectedInvoice && (
-        <InvoiceModal
-          invoice={selectedInvoice}
-          onClose={() => setSelectedInvoice(null)}
-        />
+            <nav
+              className="customer-payments__pagination"
+              aria-label="Billing pages"
+            >
+              <button
+                type="button"
+                className="customer-payments__button"
+                disabled={!data.records.previous || busy}
+                onClick={() => refreshPage(page - 1)}
+              >
+                Previous
+              </button>
+
+              <span>Page {page}</span>
+
+              <button
+                type="button"
+                className="customer-payments__button"
+                disabled={!data.records.next || busy}
+                onClick={() => refreshPage(page + 1)}
+              >
+                Next
+              </button>
+            </nav>
+          </section>
+
+          <section className="customer-payments__booking-panel">
+            <h2>Billing for a confirmed booking</h2>
+            <p>
+              Select your confirmed/completed booking to prepare or open its
+              existing billing record.
+            </p>
+
+            <button
+              type="button"
+              className="customer-payments__button"
+              disabled={bookingLoading || busy}
+              onClick={() => loadBookings(1)}
+            >
+              {bookingLoading ? "Loading…" : "Choose my booking"}
+            </button>
+
+            {bookingData && (
+              <>
+                {eligibleBookings.length === 0 ? (
+                  <p>No confirmed/completed bookings on this booking page.</p>
+                ) : (
+                  <div className="customer-payments__booking-list">
+                    {eligibleBookings.map((booking) => (
+                      <article key={booking.id}>
+                        <div>
+                          <strong>{booking.service_name}</strong>
+                          <small className="customer-payments__reference">
+                            {booking.id}
+                          </small>
+                          <span>{money(booking.quoted_price)}</span>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="customer-payments__button"
+                          disabled={busy || bookingLoading}
+                          onClick={() => prepareBilling(booking.id)}
+                        >
+                          Open billing
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                )}
+
+                <nav
+                  className="customer-payments__pagination"
+                  aria-label="Booking selection pages"
+                >
+                  <button
+                    type="button"
+                    className="customer-payments__button"
+                    disabled={!bookingData.previous || busy || bookingLoading}
+                    onClick={() => loadBookings(bookingPage - 1)}
+                  >
+                    Previous
+                  </button>
+
+                  <span>Booking page {bookingPage}</span>
+
+                  <button
+                    type="button"
+                    className="customer-payments__button"
+                    disabled={!bookingData.next || busy || bookingLoading}
+                    onClick={() => loadBookings(bookingPage + 1)}
+                  >
+                    Next
+                  </button>
+                </nav>
+              </>
+            )}
+          </section>
+
+          <section className="customer-payments__help">
+            <CreditCard size={25} aria-hidden="true" />
+
+            <div>
+              <h2>Paying directly to the studio?</h2>
+              <p>
+                Contact the studio for payment instructions. Direct payments
+                appear after staff verifies and records them.
+              </p>
+            </div>
+
+            <Link
+              to="/contact"
+              className="customer-payments__button"
+            >
+              Contact the studio
+            </Link>
+          </section>
+        </>
       )}
-    </main>
+
+      {billLoading && <p role="status">Opening billing details…</p>}
+
+      {bill && (
+        <PaymentDialog close={() => setBill(null)}>
+          <p className="customer-payments__eyebrow">
+            {bill.environment === "test" ? "TEST BILLING RECORD" : "BILLING RECORD"}
+          </p>
+
+          <h2>{bill.service_name}</h2>
+          <p className="customer-payments__reference">{bill.id}</p>
+          <Status value={bill.summary.payment_status} />
+
+          <dl className="customer-payments__invoice-lines">
+            {[
+              ["Total amount", bill.summary.total_amount],
+              ["Payments received", bill.summary.total_paid],
+              ["Refunded", bill.summary.total_refunded],
+              ["Net paid", bill.summary.net_paid],
+              ["Balance due", bill.summary.balance_due],
+              ["Credit balance", bill.summary.credit_balance],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{money(value)}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <p className="customer-payments__record-note">
+            Account billing statement — not a tax invoice.
+          </p>
+
+          {data?.configuration.online_enabled &&
+            bill.status === "open" &&
+            Number(bill.summary.balance_due) > 0 && (
+              <form
+                className="customer-payments__pay-form"
+                onSubmit={startPayment}
+              >
+                <label htmlFor="payment-amount">
+                  Payment amount in INR
+                </label>
+
+                <input
+                  id="payment-amount"
+                  type="text"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value)}
+                  required
+                  disabled={busy}
+                />
+
+                <p>
+                  Pay the full balance or enter an advance amount.
+                  An unresolved payment resumes at its original amount.
+                </p>
+
+                <button
+                  type="submit"
+                  className="customer-payments__button customer-payments__button--dark"
+                  disabled={busy}
+                >
+                  {busy
+                    ? "Please wait…"
+                    : bill.environment === "test"
+                      ? "Open test checkout"
+                      : "Pay online"}
+                </button>
+              </form>
+            )}
+
+          {!data?.configuration.online_enabled && (
+            <p className="customer-payments__record-note">
+              Online checkout is not configured yet. Contact the studio for
+              direct payment arrangements.
+            </p>
+          )}
+
+          <h3>Payment history</h3>
+
+          {bill.payments.length === 0 ? (
+            <p>No payment attempts recorded.</p>
+          ) : (
+            <div className="customer-payments__history">
+              {bill.payments.map((payment) => (
+                <article key={payment.id}>
+                  <div className="customer-payments__history-heading">
+                    <strong>{money(payment.amount)}</strong>
+                    <Status value={payment.status} />
+                  </div>
+
+                  <p>
+                    {payment.source === "razorpay" ? "Online" : "Studio verified"}
+                    {" · "}{payment.method || "Method not available"}
+                  </p>
+
+                  <small>{dateLabel(payment.paid_at || payment.created_at)}</small>
+
+                  <p className="customer-payments__reference">
+                    {payment.gateway_payment_id ||
+                      payment.offline_reference ||
+                      payment.id}
+                  </p>
+
+                  {payment.source === "razorpay" && (
+                    <button
+                      type="button"
+                      className="customer-payments__button"
+                      disabled={busy}
+                      onClick={() => checkPayment(payment.id)}
+                    >
+                      Check payment/refund status
+                    </button>
+                  )}
+
+                  {payment.refunds.map((refund) => (
+                    <p key={refund.id}>
+                      Refund: {money(refund.amount)}
+                      {" · "}{refund.status}
+                      {" · "}{dateLabel(refund.refunded_at || refund.created_at)}
+                    </p>
+                  ))}
+                </article>
+              ))}
+            </div>
+          )}
+        </PaymentDialog>
+      )}
+    </div>
   );
 }
